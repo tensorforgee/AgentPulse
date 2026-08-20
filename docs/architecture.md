@@ -14,7 +14,7 @@ The platform should help developers answer:
 - How much did the execution cost?
 - What is the likely root cause of a failure?
 
-## High-Level Architecture
+## Target High-Level Architecture
 
 AI Agent
     ↓
@@ -31,6 +31,11 @@ PostgreSQL
 NestJS API
     ↓
 Next.js Dashboard
+
+Redis, BullMQ, and the background worker are part of the target architecture,
+but they are deferred from the initial Month 1 database implementation. The
+Month 1 persistence path writes validated telemetry to PostgreSQL without
+requiring the queue layer.
 
 ## Repository Architecture
 
@@ -61,9 +66,11 @@ Organization-level multi-tenancy will be implemented after the core MVP.
 
 A project represents an application or AI-agent system being monitored. Each project will eventually have its own API credentials for sending telemetry.
 
-### Agent Run
+### Agent Run / Trace
 
-An Agent Run represents one complete execution of an AI agent.
+An Agent Run represents one complete execution of an AI agent. In the
+canonical Month 1 database model, one row in `traces` represents that complete
+Agent Run. There is no separate `agent_runs` table.
 
 Example:
 
@@ -75,8 +82,8 @@ Agent Run
     ├── LLM Call
     └── Final Response
 
-An Agent Run should contain:
-- run ID
+An Agent Run/trace should contain:
+- trace ID
 - project ID
 - agent name
 - start time
@@ -94,7 +101,10 @@ Possible statuses:
 
 ## Traces and Spans
 
-An agent execution can contain multiple nested operations. AgentPulse represents these operations as spans.
+An agent execution can contain multiple nested operations. AgentPulse stores
+the complete execution in `traces` and represents its operations as typed rows
+in `spans`. LLM calls, tool calls, and retrievals use the canonical span types
+`llm_call`, `tool_call`, and `retrieval`.
 
 Example:
 
@@ -109,7 +119,7 @@ Agent Run
 Each span should contain:
 - span ID
 - parent span ID
-- run ID
+- trace ID
 - operation name
 - type
 - start time
@@ -121,9 +131,15 @@ Each span should contain:
 
 The parentSpanId allows nested operations to form a trace tree.
 
+Failures are recorded through trace/span status and error fields rather than a
+separate Month 1 error table. Provider, model, token, cost, input/output, and
+other operation-specific telemetry may be stored on the typed span fields
+defined by the database schema.
+
 ## LLM Calls
 
-An LLM call represents a request made by an agent to an LLM provider.
+An LLM call represents a request made by an agent to an LLM provider. In Month
+1 persistence it is a span with `span_type = 'llm_call'`, not a separate table.
 
 The system should be able to record:
 - provider
@@ -140,7 +156,9 @@ Raw prompts and responses may contain sensitive information and must be handled 
 
 ## Tool Calls
 
-A tool call represents an external tool or function executed by an agent.
+A tool call represents an external tool or function executed by an agent. In
+Month 1 persistence it is a span with `span_type = 'tool_call'`, not a separate
+table. Retrieval operations use `span_type = 'retrieval'`.
 
 Examples:
 - web_search
@@ -185,7 +203,7 @@ Error information should include:
 
 The AgentPulse SDK will send telemetry to the backend.
 
-Initial flow:
+Initial Month 1 flow:
 
 Agent
   ↓
@@ -195,15 +213,13 @@ POST /v1/ingest
   ↓
 NestJS
   ↓
-Queue
-  ↓
-Worker
-  ↓
 PostgreSQL
 
 The ingestion endpoint should accept structured telemetry and validate incoming data before processing it.
 
-Expensive processing should not happen synchronously inside the ingestion request.
+The Month 1 implementation should keep synchronous processing minimal. A queue
+and background worker may be introduced later when ingestion volume or
+processing requirements justify them.
 
 ## Authentication and API Keys
 
@@ -227,22 +243,29 @@ API keys must:
 
 PostgreSQL will be the primary persistent database.
 
-The initial data model will contain entities around:
-- Organization
-- User
-- Project
-- ApiKey
-- AgentRun
-- Span
-- LlmCall
-- ToolCall
-- Error
+The canonical Month 1 persistence model contains exactly these core tables:
 
-The exact database schema must be designed before implementation.
+- `organizations`
+- `users`
+- `org_members`
+- `projects`
+- `api_keys`
+- `traces`
+- `spans`
+
+One `traces` row represents one complete Agent Run/execution. LLM calls, tool
+calls, retrievals, and failures are represented through typed spans and
+trace/span fields; they do not require separate Month 1 tables.
+
+[`database-schema.md`](./database-schema.md) is the source of truth for Month 1
+PostgreSQL persistence, including fields, constraints, relationships, and
+indexes.
 
 ## Redis and BullMQ
 
-Redis will be used for asynchronous telemetry processing. BullMQ will manage background jobs.
+Redis and BullMQ are deferred from the initial Month 1 database implementation.
+They may later be used for asynchronous telemetry processing when the direct
+ingestion path has been proven and operational requirements justify a queue.
 
 Example:
 
