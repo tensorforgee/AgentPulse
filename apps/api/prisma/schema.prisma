@@ -1,0 +1,144 @@
+generator client {
+  provider            = "prisma-client"
+  output              = "../src/generated/prisma"
+  runtime             = "nodejs"
+  moduleFormat        = "cjs"
+  importFileExtension = ""
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+model User {
+  id           String               @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  email        String               @unique(map: "users_email_key") @db.VarChar(320)
+  passwordHash String               @map("password_hash") @db.Text
+  displayName  String?              @map("display_name") @db.Text
+  createdAt    DateTime             @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt    DateTime             @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
+  memberships  OrganizationMember[]
+
+  @@map("users")
+}
+
+model Organization {
+  id               String               @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  name             String               @db.Text
+  slug             String               @unique(map: "organizations_slug_key") @db.VarChar(100)
+  plan             String               @default("free") @db.Text
+  stripeCustomerId String?              @map("stripe_customer_id") @db.Text
+  createdAt        DateTime             @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt        DateTime             @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
+  memberships      OrganizationMember[]
+  projects         Project[]
+
+  @@map("organizations")
+}
+
+model OrganizationMember {
+  id             String       @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  organizationId String       @map("org_id") @db.Uuid
+  userId         String       @map("user_id") @db.Uuid
+  role           String       @default("member") @db.Text
+  createdAt      DateTime     @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt      DateTime     @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  user           User         @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([organizationId, userId], map: "org_members_org_id_user_id_key")
+  @@index([userId], map: "org_members_user_id_idx")
+  @@map("org_members")
+}
+
+model Project {
+  id             String       @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  organizationId String       @map("org_id") @db.Uuid
+  name           String       @db.Text
+  slug           String       @db.VarChar(100)
+  description    String?      @db.Text
+  createdAt      DateTime     @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt      DateTime     @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  apiKeys        ApiKey[]
+  traces         Trace[]
+
+  @@unique([organizationId, slug], map: "projects_org_id_slug_key")
+  @@index([organizationId], map: "projects_org_id_idx")
+  @@map("projects")
+}
+
+model ApiKey {
+  id         String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  projectId  String    @map("project_id") @db.Uuid
+  name       String    @db.Text
+  prefix     String    @db.VarChar(16)
+  hashedKey  String    @unique(map: "api_keys_hashed_key_key") @map("hashed_key") @db.Text
+  lastUsedAt DateTime? @map("last_used_at") @db.Timestamptz(6)
+  expiresAt  DateTime? @map("expires_at") @db.Timestamptz(6)
+  revokedAt  DateTime? @map("revoked_at") @db.Timestamptz(6)
+  createdAt  DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+  project    Project   @relation(fields: [projectId], references: [id], onDelete: Cascade)
+
+  @@index([projectId], map: "api_keys_project_id_idx")
+  @@index([prefix], map: "api_keys_prefix_idx")
+  @@map("api_keys")
+}
+
+model Trace {
+  id           String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  projectId    String    @map("project_id") @db.Uuid
+  agentName    String    @map("agent_name") @db.Text
+  name         String?   @db.Text
+  status       String    @default("running") @db.Text
+  startedAt    DateTime  @map("started_at") @db.Timestamptz(6)
+  endedAt      DateTime? @map("ended_at") @db.Timestamptz(6)
+  durationMs   BigInt?   @map("duration_ms") @db.BigInt
+  inputTokens  BigInt    @default(0) @map("input_tokens") @db.BigInt
+  outputTokens BigInt    @default(0) @map("output_tokens") @db.BigInt
+  totalTokens  BigInt    @default(0) @map("total_tokens") @db.BigInt
+  totalCost    Decimal   @default(0) @map("total_cost") @db.Decimal(18, 8)
+  metadata     Json      @default("{}") @db.JsonB
+  errorType    String?   @map("error_type") @db.Text
+  errorMessage String?   @map("error_message") @db.Text
+  createdAt    DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+  project      Project   @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  spans        Span[]
+
+  @@index([projectId, startedAt(sort: Desc)], map: "traces_project_id_started_at_idx")
+  @@map("traces")
+}
+
+model Span {
+  id            String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  traceId       String    @map("trace_id") @db.Uuid
+  parentSpanId  String?   @map("parent_span_id") @db.Uuid
+  name          String    @db.Text
+  spanType      String    @default("custom") @map("span_type") @db.Text
+  status        String    @default("running") @db.Text
+  startedAt     DateTime  @map("started_at") @db.Timestamptz(6)
+  endedAt       DateTime? @map("ended_at") @db.Timestamptz(6)
+  latencyMs     BigInt?   @map("latency_ms") @db.BigInt
+  input         Json?     @db.JsonB
+  output        Json?     @db.JsonB
+  provider      String?   @db.Text
+  model         String?   @db.Text
+  inputTokens   BigInt    @default(0) @map("input_tokens") @db.BigInt
+  outputTokens  BigInt    @default(0) @map("output_tokens") @db.BigInt
+  estimatedCost Decimal   @default(0) @map("estimated_cost") @db.Decimal(18, 8)
+  attributes    Json      @default("{}") @db.JsonB
+  errorType     String?   @map("error_type") @db.Text
+  errorMessage  String?   @map("error_message") @db.Text
+  errorStack    String?   @map("error_stack") @db.Text
+  createdAt     DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+  trace         Trace     @relation(fields: [traceId], references: [id], onDelete: Cascade)
+  /// The migration uses PostgreSQL's column-list SET NULL so deleting a parent
+  /// clears only parent_span_id and never the required tenant-scoped trace_id.
+  parent        Span?     @relation("SpanHierarchy", fields: [traceId, parentSpanId], references: [traceId, id], onDelete: SetNull)
+  children      Span[]    @relation("SpanHierarchy")
+
+  @@unique([traceId, id], map: "spans_trace_id_id_key")
+  @@index([traceId], map: "spans_trace_id_idx")
+  @@index([parentSpanId], map: "spans_parent_span_id_idx")
+  @@map("spans")
+}
