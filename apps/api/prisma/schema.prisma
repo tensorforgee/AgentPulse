@@ -150,7 +150,8 @@ model Trace {
   spans        Span[]
   alertEvents  AlertEvent[]
 
-  @@index([projectId, startedAt(sort: Desc)], map: "traces_project_id_started_at_idx")
+  @@index([projectId, startedAt(sort: Desc), id(sort: Desc)], map: "traces_project_id_started_at_id_idx")
+  @@index([projectId, status, startedAt(sort: Desc), id(sort: Desc)], map: "traces_project_id_status_started_at_id_idx")
   @@map("traces")
 }
 
@@ -183,7 +184,7 @@ model Span {
   children      Span[]    @relation("SpanHierarchy")
 
   @@unique([traceId, id], map: "spans_trace_id_id_key")
-  @@index([traceId], map: "spans_trace_id_idx")
+  @@index([traceId, startedAt, id], map: "spans_trace_id_started_at_id_idx")
   @@index([parentSpanId], map: "spans_parent_span_id_idx")
   @@map("spans")
 }

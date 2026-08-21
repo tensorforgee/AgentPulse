@@ -77,6 +77,17 @@ export interface TraceListResponse {
   pagination: TracePagination;
 }
 
+export interface TraceMetrics {
+  total: number;
+  success: number;
+  failed: number;
+  successRate: number;
+  errorRate: number;
+  averageLatency: number | null;
+  totalTokens: number;
+  totalCost: string;
+}
+
 export interface SpanDetail {
   id: string;
   traceId: string;

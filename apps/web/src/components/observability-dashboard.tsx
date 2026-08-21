@@ -14,8 +14,8 @@ import {
 import type {
   AlertEvent,
   TelemetryStatus,
-  TraceListItem,
   TraceListResponse,
+  TraceMetrics,
 } from "@/lib/types";
 
 const PAGE_SIZE = 10;
@@ -41,9 +41,9 @@ export function ObservabilityDashboard() {
   }>({ key: "", response: null, error: "" });
   const [metricState, setMetricState] = useState<{
     projectId: string;
-    traces: TraceListItem[];
+    metrics: TraceMetrics | null;
     error: string;
-  }>({ projectId: "", traces: [], error: "" });
+  }>({ projectId: "", metrics: null, error: "" });
   const [alertState, setAlertState] = useState<{
     projectId: string;
     events: AlertEvent[];
@@ -125,17 +125,19 @@ export function ObservabilityDashboard() {
     if (!selectedProject) return;
     let active = true;
 
-    loadAllProjectTraces(selectedProject.id).then(
-      (traces) => {
+    requestJson<TraceMetrics>(
+      `/api/projects/${selectedProject.id}/traces/metrics`,
+    ).then(
+      (metrics) => {
         if (active) {
-          setMetricState({ projectId: selectedProject.id, traces, error: "" });
+          setMetricState({ projectId: selectedProject.id, metrics, error: "" });
         }
       },
       (caught: unknown) => {
         if (active) {
           setMetricState({
             projectId: selectedProject.id,
-            traces: [],
+            metrics: null,
             error:
               caught instanceof Error
                 ? caught.message
@@ -207,9 +209,7 @@ export function ObservabilityDashboard() {
   const list = listState.key === requestKey ? listState.response : null;
   const listError = listState.key === requestKey ? listState.error : "";
   const metrics =
-    metricState.projectId === selectedProject.id
-      ? calculateMetrics(metricState.traces)
-      : null;
+    metricState.projectId === selectedProject.id ? metricState.metrics : null;
   const metricError =
     metricState.projectId === selectedProject.id ? metricState.error : "";
   const alertEvents =
@@ -542,45 +542,6 @@ function formatAlertValue(type: AlertEvent["ruleType"], value: string) {
     return formatDuration(Math.round(Number(value)));
   }
   return formatCost(value);
-}
-
-async function loadAllProjectTraces(projectId: string) {
-  const first = await requestJson<TraceListResponse>(
-    `/api/projects/${projectId}/traces?page=1&pageSize=100`,
-  );
-  if (first.pagination.totalPages <= 1) return first.data;
-
-  const remaining = await Promise.all(
-    Array.from({ length: first.pagination.totalPages - 1 }, (_, index) =>
-      requestJson<TraceListResponse>(
-        `/api/projects/${projectId}/traces?page=${index + 2}&pageSize=100`,
-      ),
-    ),
-  );
-  return [first, ...remaining].flatMap(({ data }) => data);
-}
-
-function calculateMetrics(traces: TraceListItem[]) {
-  const success = traces.filter(({ status }) => status === "success").length;
-  const failed = traces.filter(({ status }) => status === "failed").length;
-  const durations = traces.flatMap(({ durationMs }) =>
-    durationMs === null ? [] : [durationMs],
-  );
-  const percentage = (value: number) =>
-    traces.length ? Math.round((value / traces.length) * 100) : 0;
-
-  return {
-    total: traces.length,
-    successRate: percentage(success),
-    errorRate: percentage(failed),
-    averageLatency: durations.length
-      ? Math.round(
-          durations.reduce((sum, value) => sum + value, 0) / durations.length,
-        )
-      : null,
-    totalTokens: traces.reduce((sum, trace) => sum + trace.totalTokens, 0),
-    totalCost: traces.reduce((sum, trace) => sum + Number(trace.totalCost), 0),
-  };
 }
 
 function DashboardHeading({ projectName }: { projectName?: string }) {

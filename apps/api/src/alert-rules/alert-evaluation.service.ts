@@ -2,6 +2,7 @@ import { Injectable, Logger } from '@nestjs/common';
 import { Prisma } from '../generated/prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 import { RealtimeEventsService } from '../realtime/realtime-events.service';
+import { TraceAggregatesService } from '../traces/trace-aggregates.service';
 import {
   alertEventSelect,
   type AlertEventRecord,
@@ -20,6 +21,7 @@ export class AlertEvaluationService {
     private readonly prisma: PrismaService,
     private readonly delivery: AlertDeliveryService,
     private readonly realtime: RealtimeEventsService,
+    private readonly traceAggregates: TraceAggregatesService,
   ) {}
 
   async evaluate(projectId: string, traceId: string): Promise<void> {
@@ -43,15 +45,13 @@ export class AlertEvaluationService {
     const windowStartedAt = new Date(
       windowEndedAt.getTime() - EVALUATION_WINDOW_MS,
     );
-    const traces = await this.prisma.trace.findMany({
-      where: {
-        projectId,
-        status: { in: ['success', 'failed'] },
-        startedAt: { gte: windowStartedAt, lte: windowEndedAt },
-      },
-      select: { status: true, durationMs: true, totalCost: true },
+    const summary = await this.traceAggregates.summarize({
+      projectId,
+      completedOnly: true,
+      startedAtFrom: windowStartedAt,
+      startedAtTo: windowEndedAt,
     });
-    const values = evaluationValues(traces);
+    const values = evaluationValues(summary);
     const events: AlertEventRecord[] = [];
 
     for (const rule of rules) {
@@ -110,29 +110,15 @@ export class AlertEvaluationService {
 }
 
 function evaluationValues(
-  traces: Array<{
-    status: string;
-    durationMs: bigint | null;
-    totalCost: Prisma.Decimal;
-  }>,
+  summary: Awaited<ReturnType<TraceAggregatesService['summarize']>>,
 ): Record<AlertRuleType, Prisma.Decimal | null> {
-  const failed = traces.filter(({ status }) => status === 'failed').length;
-  const durations = traces.flatMap(({ durationMs }) =>
-    durationMs === null ? [] : [durationMs],
-  );
-  const durationTotal = durations.reduce((sum, value) => sum + value, 0n);
-  const totalCost = traces.reduce(
-    (sum, trace) => sum.plus(trace.totalCost),
-    new Prisma.Decimal(0),
-  );
-
   return {
-    error_rate: traces.length
-      ? new Prisma.Decimal(failed).div(traces.length)
+    error_rate: summary.totalCount
+      ? new Prisma.Decimal(summary.failedCount.toString()).div(
+          summary.totalCount.toString(),
+        )
       : null,
-    latency: durations.length
-      ? new Prisma.Decimal(durationTotal.toString()).div(durations.length)
-      : null,
-    cost: totalCost,
+    latency: summary.averageLatencyMs,
+    cost: summary.totalCost,
   };
 }
