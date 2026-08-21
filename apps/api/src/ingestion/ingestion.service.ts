@@ -2,7 +2,6 @@ import {
   BadRequestException,
   ConflictException,
   Injectable,
-  Logger,
 } from '@nestjs/common';
 import {
   assertTraceWithSpansContract,
@@ -11,18 +10,16 @@ import {
   type TraceWithSpansContract,
 } from '@agentpulse/shared';
 import { Prisma } from '../generated/prisma/client';
-import { AlertEvaluationService } from '../alert-rules/alert-evaluation.service';
 import { PrismaService } from '../prisma/prisma.service';
 import { RealtimeEventsService } from '../realtime/realtime-events.service';
+import { PostIngestProcessorService } from './post-ingest-processor.service';
 
 @Injectable()
 export class IngestionService {
-  private readonly logger = new Logger(IngestionService.name);
-
   constructor(
     private readonly prisma: PrismaService,
-    private readonly alertEvaluation: AlertEvaluationService,
     private readonly realtime: RealtimeEventsService,
+    private readonly postIngest: PostIngestProcessorService,
   ) {}
 
   async ingest(projectId: string, payload: unknown) {
@@ -88,15 +85,7 @@ export class IngestionService {
       status: telemetry.status,
       spansProcessed: orderedSpans.length,
     });
-    try {
-      await this.alertEvaluation.evaluate(projectId, telemetry.id);
-    } catch {
-      // Telemetry is already durable. Alerting must never turn a successful
-      // ingestion into an error or corrupt the persisted trace transaction.
-      this.logger.error(
-        `Alert evaluation failed after ingesting trace ${telemetry.id}`,
-      );
-    }
+    this.postIngest.enqueue(projectId, telemetry.id);
 
     return {
       traceId: telemetry.id,

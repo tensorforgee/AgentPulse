@@ -4,6 +4,7 @@ import { Test, TestingModule } from '@nestjs/testing';
 import request from 'supertest';
 import { App } from 'supertest/types';
 import { AppModule } from './../src/app.module';
+import { PostIngestProcessorService } from './../src/ingestion/post-ingest-processor.service';
 import { PrismaService } from './../src/prisma/prisma.service';
 
 interface AuthResponse {
@@ -25,6 +26,7 @@ interface RcaResponse {
 describe('Advanced observability (e2e)', () => {
   let app: INestApplication<App>;
   let prisma: PrismaService;
+  let postIngest: PostIngestProcessorService;
   let firstToken: string;
   let secondToken: string;
   let projectId: string;
@@ -63,6 +65,7 @@ describe('Advanced observability (e2e)', () => {
     );
     await app.init();
     prisma = app.get(PrismaService);
+    postIngest = app.get(PostIngestProcessorService);
 
     const firstSignup = await request(app.getHttpServer())
       .post('/auth/signup')
@@ -154,6 +157,7 @@ describe('Advanced observability (e2e)', () => {
       .set('Authorization', `Bearer ${apiKey}`)
       .send(tracePayload(successTraceId, 'success', 500, '0.1'))
       .expect(202);
+    await postIngest.waitForIdle();
 
     expect(await prisma.alertEvent.count({ where: { projectId } })).toBe(0);
   });
@@ -190,6 +194,7 @@ describe('Advanced observability (e2e)', () => {
       traceId: failedTraceId,
       spansProcessed: 1,
     });
+    await postIngest.waitForIdle();
 
     const events = await prisma.alertEvent.findMany({
       where: { projectId },
@@ -243,6 +248,7 @@ describe('Advanced observability (e2e)', () => {
         ]),
       )
       .expect(202);
+    await postIngest.waitForIdle();
 
     expect(await prisma.alertEvent.count({ where: { projectId } })).toBe(3);
   });

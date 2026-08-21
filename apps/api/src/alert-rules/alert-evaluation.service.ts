@@ -13,6 +13,11 @@ import { AlertDeliveryService } from './alert-delivery.service';
 
 const EVALUATION_WINDOW_MS = 5 * 60 * 1000;
 
+interface EvaluatedAlertEvent {
+  event: AlertEventRecord;
+  isNew: boolean;
+}
+
 @Injectable()
 export class AlertEvaluationService {
   private readonly logger = new Logger(AlertEvaluationService.name);
@@ -52,7 +57,7 @@ export class AlertEvaluationService {
       startedAtTo: windowEndedAt,
     });
     const values = evaluationValues(summary);
-    const events: AlertEventRecord[] = [];
+    const events: EvaluatedAlertEvent[] = [];
 
     for (const rule of rules) {
       const observedValue = values[rule.type as AlertRuleType];
@@ -60,7 +65,7 @@ export class AlertEvaluationService {
         continue;
       }
 
-      const event = await this.createEvent({
+      const evaluatedEvent = await this.createEvent({
         projectId,
         alertRuleId: rule.id,
         traceId,
@@ -71,36 +76,60 @@ export class AlertEvaluationService {
         windowStartedAt,
         windowEndedAt,
       });
-      if (!event) {
+      if (!evaluatedEvent) {
         continue;
       }
-      events.push(event);
+      events.push(evaluatedEvent);
     }
 
-    await Promise.all(
-      events.map(async (event) => {
+    const deliveryResults = await Promise.all(
+      events.map(async ({ event, isNew }) => {
         const delivered = await this.delivery.deliver(event);
-        this.realtime.publish(projectId, 'alert.triggered', {
-          alertEvent: serializeAlertEvent(delivered),
-        });
+        if (isNew) {
+          this.realtime.publish(projectId, 'alert.triggered', {
+            alertEvent: serializeAlertEvent(delivered),
+          });
+        }
+        return delivered;
       }),
     );
+
+    if (
+      deliveryResults.some(({ deliveryStatus }) =>
+        ['pending', 'failed'].includes(deliveryStatus),
+      )
+    ) {
+      throw new Error('One or more alert deliveries require retry');
+    }
   }
 
   private async createEvent(
     data: Prisma.AlertEventUncheckedCreateInput,
-  ): Promise<AlertEventRecord | null> {
+  ): Promise<EvaluatedAlertEvent | null> {
     try {
-      return await this.prisma.alertEvent.create({
-        data,
-        select: alertEventSelect,
-      });
+      return {
+        event: await this.prisma.alertEvent.create({
+          data,
+          select: alertEventSelect,
+        }),
+        isNew: true,
+      };
     } catch (error) {
       if (
         error instanceof Prisma.PrismaClientKnownRequestError &&
         error.code === 'P2002'
       ) {
-        return null;
+        const existing = await this.prisma.alertEvent.findFirst({
+          where: {
+            alertRuleId: data.alertRuleId ?? null,
+            traceId: data.traceId,
+          },
+          select: alertEventSelect,
+        });
+        return existing &&
+          ['pending', 'failed'].includes(existing.deliveryStatus)
+          ? { event: existing, isNew: false }
+          : null;
       }
 
       this.logger.error('Alert event persistence failed');
