@@ -37,6 +37,17 @@ interface TraceListResponse {
   };
 }
 
+interface TraceMetricsResponse {
+  total: number;
+  success: number;
+  failed: number;
+  successRate: number;
+  errorRate: number;
+  averageLatency: number | null;
+  totalTokens: number;
+  totalCost: string;
+}
+
 interface SpanResponse {
   id: string;
   traceId: string;
@@ -283,6 +294,9 @@ describe('Trace read APIs (e2e)', () => {
     await request(app.getHttpServer())
       .get(`/traces/${newestTraceId}`)
       .expect(401);
+    await request(app.getHttpServer())
+      .get(`/projects/${firstProjectId}/traces/metrics`)
+      .expect(401);
   });
 
   it('returns a clean empty paginated response', async () => {
@@ -323,6 +337,38 @@ describe('Trace read APIs (e2e)', () => {
     });
     expect(typeof body.data[0].startedAt).toBe('string');
     expect(body.pagination).toMatchObject({ total: 3, totalPages: 1 });
+  });
+
+  it('aggregates project dashboard metrics without loading trace rows', async () => {
+    const populated = await request(app.getHttpServer())
+      .get(`/projects/${firstProjectId}/traces/metrics`)
+      .set('Authorization', `Bearer ${firstAuth.accessToken}`)
+      .expect(200);
+    expect(populated.body as TraceMetricsResponse).toEqual({
+      total: 3,
+      success: 2,
+      failed: 1,
+      successRate: 67,
+      errorRate: 33,
+      averageLatency: 1167,
+      totalTokens: 105,
+      totalCost: '0.0075',
+    });
+
+    const empty = await request(app.getHttpServer())
+      .get(`/projects/${emptyProjectId}/traces/metrics`)
+      .set('Authorization', `Bearer ${firstAuth.accessToken}`)
+      .expect(200);
+    expect(empty.body as TraceMetricsResponse).toEqual({
+      total: 0,
+      success: 0,
+      failed: 0,
+      successRate: 0,
+      errorRate: 0,
+      averageLatency: null,
+      totalTokens: 0,
+      totalCost: '0',
+    });
   });
 
   it('paginates safely without duplicate rows', async () => {
@@ -463,6 +509,10 @@ describe('Trace read APIs (e2e)', () => {
     await request(app.getHttpServer())
       .get(`/traces/${crossTenantTraceId}`)
       .set('Authorization', `Bearer ${firstAuth.accessToken}`)
+      .expect(404);
+    await request(app.getHttpServer())
+      .get(`/projects/${firstProjectId}/traces/metrics`)
+      .set('Authorization', `Bearer ${secondAuth.accessToken}`)
       .expect(404);
   });
 });

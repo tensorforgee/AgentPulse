@@ -3,6 +3,7 @@ import { AuthModule } from '../auth/auth.module';
 import { PrismaModule } from '../prisma/prisma.module';
 import { ProjectsModule } from '../projects/projects.module';
 import { RealtimeModule } from '../realtime/realtime.module';
+import { TracesModule } from '../traces/traces.module';
 import {
   AlertEventsController,
   ProjectAlertEventsController,
@@ -17,7 +18,13 @@ import {
 import { AlertRulesService } from './alert-rules.service';
 
 @Module({
-  imports: [AuthModule, ProjectsModule, PrismaModule, RealtimeModule],
+  imports: [
+    AuthModule,
+    ProjectsModule,
+    PrismaModule,
+    RealtimeModule,
+    TracesModule,
+  ],
   controllers: [
     ProjectAlertRulesController,
     AlertRulesController,

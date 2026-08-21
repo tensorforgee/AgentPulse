@@ -21,6 +21,16 @@ import { TracesService } from './traces.service';
 export class ProjectTracesController {
   constructor(private readonly tracesService: TracesService) {}
 
+  @Get('metrics')
+  metrics(@Req() request: ProjectAuthorizedRequest) {
+    const projectId = request.projectAccess?.project.id;
+    if (!projectId) {
+      throw new NotFoundException('Project not found');
+    }
+
+    return this.tracesService.metrics(projectId);
+  }
+
   @Get()
   list(
     @Req() request: ProjectAuthorizedRequest,

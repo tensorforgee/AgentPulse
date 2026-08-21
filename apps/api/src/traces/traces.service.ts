@@ -8,6 +8,7 @@ import { isUUID } from 'class-validator';
 import { Prisma } from '../generated/prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 import type { ListTracesQueryDto } from './dto/list-traces-query.dto';
+import { TraceAggregatesService } from './trace-aggregates.service';
 
 const traceListSelect = {
   id: true,
@@ -70,7 +71,30 @@ type SpanRecord = Prisma.SpanGetPayload<{ select: typeof spanSelect }>;
 
 @Injectable()
 export class TracesService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly aggregates: TraceAggregatesService,
+  ) {}
+
+  async metrics(projectId: string) {
+    const summary = await this.aggregates.summarize({ projectId });
+
+    return {
+      total: serializeBigInt(summary.totalCount),
+      success: serializeBigInt(summary.successCount),
+      failed: serializeBigInt(summary.failedCount),
+      successRate: percentage(summary.successCount, summary.totalCount),
+      errorRate: percentage(summary.failedCount, summary.totalCount),
+      averageLatency:
+        summary.averageLatencyMs === null
+          ? null
+          : serializeBigInt(
+              BigInt(summary.averageLatencyMs.round().toFixed(0)),
+            ),
+      totalTokens: serializeBigInt(summary.totalTokens),
+      totalCost: summary.totalCost.toString(),
+    };
+  }
 
   async list(projectId: string, query: ListTracesQueryDto) {
     const where = this.listWhere(projectId, query);
@@ -218,4 +242,16 @@ function serializeBigInt(value: bigint | null): number | null {
     );
   }
   return serialized;
+}
+
+function percentage(value: bigint, total: bigint): number {
+  if (total === 0n) {
+    return 0;
+  }
+
+  return new Prisma.Decimal(value.toString())
+    .mul(100)
+    .div(total.toString())
+    .round()
+    .toNumber();
 }
