@@ -12,13 +12,19 @@ export async function requestJson<T>(
   const payload: unknown = await response.json().catch(() => null);
 
   if (!response.ok) {
-    const message =
+    const rawMessage =
       payload &&
       typeof payload === "object" &&
-      "message" in payload &&
-      typeof payload.message === "string"
+      "message" in payload
         ? payload.message
-        : "Something went wrong. Please try again.";
+        : null;
+    const message =
+      typeof rawMessage === "string"
+        ? rawMessage
+        : Array.isArray(rawMessage) &&
+            rawMessage.every((item) => typeof item === "string")
+          ? rawMessage.join(" ")
+          : "Something went wrong. Please try again.";
     throw new Error(message);
   }
 

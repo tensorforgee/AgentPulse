@@ -14,6 +14,11 @@ interface AuthPayload {
   refreshToken: string;
 }
 
+const refreshRequests = new Map<
+  string,
+  Promise<AuthPayload | undefined>
+>();
+
 function cookieOptions(maxAge: number) {
   return {
     httpOnly: true,
@@ -74,6 +79,29 @@ function isAuthPayload(value: unknown): value is AuthPayload {
   );
 }
 
+function refreshSession(refreshToken: string) {
+  const existing = refreshRequests.get(refreshToken);
+  if (existing) return existing;
+
+  const pending = (async () => {
+    try {
+      const response = await callApi("/auth/refresh", {
+        method: "POST",
+        body: JSON.stringify({ refreshToken }),
+      });
+      if (!response.ok) return undefined;
+
+      const payload: unknown = await response.json();
+      return isAuthPayload(payload) ? payload : undefined;
+    } finally {
+      refreshRequests.delete(refreshToken);
+    }
+  })();
+
+  refreshRequests.set(refreshToken, pending);
+  return pending;
+}
+
 export async function handleAuth(request: NextRequest, path: string) {
   const upstream = await callApi(path, {
     method: "POST",
@@ -107,17 +135,9 @@ export async function authenticatedProxy(
   if (upstream.status === 401) {
     const refreshToken = request.cookies.get(REFRESH_COOKIE)?.value;
     if (refreshToken) {
-      const refreshResponse = await callApi("/auth/refresh", {
-        method: "POST",
-        body: JSON.stringify({ refreshToken }),
-      });
-
-      if (refreshResponse.ok) {
-        const payload: unknown = await refreshResponse.json();
-        if (isAuthPayload(payload)) {
-          refreshed = payload;
-          upstream = await callApi(path, init, refreshed.accessToken);
-        }
+      refreshed = await refreshSession(refreshToken);
+      if (refreshed) {
+        upstream = await callApi(path, init, refreshed.accessToken);
       }
     }
   }
@@ -129,7 +149,19 @@ export async function authenticatedProxy(
   return response;
 }
 
-export function logoutResponse() {
+export async function handleLogout(request: NextRequest) {
+  const refreshToken = request.cookies.get(REFRESH_COOKIE)?.value;
+  if (refreshToken) {
+    try {
+      await callApi("/auth/logout", {
+        method: "POST",
+        body: JSON.stringify({ refreshToken }),
+      });
+    } catch {
+      // Local logout must still succeed if the API is temporarily unavailable.
+    }
+  }
+
   const response = NextResponse.json({ success: true });
   clearSessionCookies(response);
   return response;

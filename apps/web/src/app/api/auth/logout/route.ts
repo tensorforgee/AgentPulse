@@ -1,5 +1,6 @@
-import { logoutResponse } from "@/lib/backend";
+import type { NextRequest } from "next/server";
+import { handleLogout } from "@/lib/backend";
 
-export function POST() {
-  return logoutResponse();
+export function POST(request: NextRequest) {
+  return handleLogout(request);
 }
