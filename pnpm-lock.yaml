@@ -173,6 +173,16 @@ importers:
         specifier: ^5
         version: 5.9.3
 
+  packages/sdk:
+    dependencies:
+      '@agentpulse/shared':
+        specifier: workspace:*
+        version: link:../shared
+    devDependencies:
+      typescript:
+        specifier: ^5.7.3
+        version: 5.9.3
+
   packages/shared:
     devDependencies:
       typescript:
