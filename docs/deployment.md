@@ -24,7 +24,7 @@ public services.
 | --- | --- | --- |
 | `NODE_ENV` | Yes | Set to `production`. |
 | `PORT` | Platform-dependent | Listener port; defaults to `5000`. |
-| `CORS_ORIGINS` | Yes in production | Comma-separated exact web origins, for example `https://agentpulse.example.com`. Wildcards are not used. |
+| `CORS_ORIGINS` | Yes in production | Comma-separated exact HTTPS web origins, for example `https://agentpulse.example.com`. HTTP and wildcards are rejected in production. |
 | `TRUST_PROXY_HOPS` | No | Number of trusted reverse-proxy hops; defaults to the safe direct-connection value `0`. |
 | `DATABASE_URL` | Yes | PostgreSQL connection URL. Require TLS when the database is reached over a network. |
 | `JWT_ACCESS_SECRET` | Yes | High-entropy access-token signing secret, at least 32 random characters. |
@@ -47,6 +47,9 @@ The API also accepts optional configuration groups:
 
 Webhook URLs, provider keys, JWT secrets, and `DATABASE_URL` are secrets. Keep
 them in the hosting platform's secret manager even though some are optional.
+Production webhook and RCA provider URLs must use HTTPS, cannot embed URL
+credentials, and must not rely on redirects. Plain HTTP remains available only
+for local development and test endpoints.
 
 ### Web
 

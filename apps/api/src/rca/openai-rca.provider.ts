@@ -1,4 +1,5 @@
 import { Injectable } from '@nestjs/common';
+import { isAllowedOutboundUrl } from '../operations/security-config';
 import type { RcaProvider, RcaProviderInput } from './rca-provider';
 
 interface ChatCompletionResponse {
@@ -23,14 +24,15 @@ export class OpenAiRcaProvider implements RcaProvider {
     const baseUrl = new URL(
       process.env.RCA_PROVIDER_BASE_URL ?? 'https://api.openai.com/v1',
     );
-    if (!['http:', 'https:'].includes(baseUrl.protocol)) {
-      throw new Error('RCA provider URL must use HTTP or HTTPS');
+    if (!isAllowedOutboundUrl(baseUrl)) {
+      throw new Error('RCA provider URL must use an allowed secure URL');
     }
 
     const response = await fetch(
       new URL('chat/completions', ensureTrailingSlash(baseUrl)).toString(),
       {
         method: 'POST',
+        redirect: 'error',
         headers: {
           authorization: `Bearer ${apiKey}`,
           'content-type': 'application/json',

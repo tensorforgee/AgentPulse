@@ -3,6 +3,7 @@ import { NestFactory } from '@nestjs/core';
 import type { NestExpressApplication } from '@nestjs/platform-express';
 import { AppModule } from './app.module';
 import { JsonLoggerService } from './operations/json-logger.service';
+import { corsOrigins } from './operations/security-config';
 
 function serverPort(): number {
   const value = Number(process.env.PORT ?? 5000);
@@ -20,30 +21,6 @@ function trustedProxyHops(): number {
   return value;
 }
 
-function corsOrigins(): string[] {
-  const configured = process.env.CORS_ORIGINS?.split(',')
-    .map((origin) => origin.trim())
-    .filter(Boolean);
-
-  if (!configured?.length) {
-    if (process.env.NODE_ENV === 'production') {
-      throw new Error('CORS_ORIGINS is required in production');
-    }
-    return ['http://localhost:3000'];
-  }
-
-  return configured.map((origin) => {
-    const parsed = new URL(origin);
-    if (
-      !['http:', 'https:'].includes(parsed.protocol) ||
-      parsed.origin !== origin
-    ) {
-      throw new Error(`Invalid CORS origin: ${origin}`);
-    }
-    return origin;
-  });
-}
-
 async function bootstrap() {
   const app = await NestFactory.create<NestExpressApplication>(AppModule, {
     bufferLogs: true,
@@ -56,7 +33,7 @@ async function bootstrap() {
   app.enableCors({
     credentials: true,
     exposedHeaders: ['x-request-id'],
-    origin: corsOrigins(),
+    origin: corsOrigins(process.env.CORS_ORIGINS, process.env.NODE_ENV),
   });
   app.useGlobalPipes(
     new ValidationPipe({

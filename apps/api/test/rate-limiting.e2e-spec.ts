@@ -161,6 +161,10 @@ describe('Rate limiting (e2e)', () => {
       .post('/auth/refresh')
       .send({ refreshToken: secondRefresh.refreshToken })
       .expect(429);
+    await request(app.getHttpServer())
+      .post('/auth/logout')
+      .send({ refreshToken: secondRefresh.refreshToken })
+      .expect(429);
   });
 
   it('rate limits repeated invalid API-key authentication attempts', async () => {

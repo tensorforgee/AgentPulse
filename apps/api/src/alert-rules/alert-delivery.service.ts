@@ -1,5 +1,6 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
+import { isAllowedOutboundUrl } from '../operations/security-config';
 import {
   alertEventSelect,
   type AlertEventRecord,
@@ -22,6 +23,7 @@ export class AlertDeliveryService {
     try {
       const response = await fetch(webhookUrl, {
         method: 'POST',
+        redirect: 'error',
         headers: { 'content-type': 'application/json' },
         body: JSON.stringify(this.payload(event)),
         signal: AbortSignal.timeout(3_000),
@@ -88,7 +90,7 @@ export class AlertDeliveryService {
       }
 
       const url = new URL(value);
-      return ['http:', 'https:'].includes(url.protocol) ? url.toString() : null;
+      return isAllowedOutboundUrl(url) ? url.toString() : null;
     } catch {
       this.logger.warn('Alert webhook configuration is invalid');
       return null;

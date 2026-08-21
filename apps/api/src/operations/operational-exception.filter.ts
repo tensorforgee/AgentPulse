@@ -73,6 +73,15 @@ export class OperationalExceptionFilter implements ExceptionFilter {
       };
     }
     if (isHttpErrorLike(exception)) {
+      if (exception.statusCode >= 500) {
+        return {
+          statusCode: exception.statusCode,
+          body: {
+            statusCode: exception.statusCode,
+            message: 'Internal server error',
+          },
+        };
+      }
       return {
         statusCode: exception.statusCode,
         body: {

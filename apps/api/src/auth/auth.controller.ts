@@ -45,6 +45,7 @@ export class AuthController {
   }
 
   @Post('auth/logout')
+  @RateLimit(RATE_LIMIT_POLICY.authRefresh)
   @HttpCode(HttpStatus.NO_CONTENT)
   logout(@Body() dto: RefreshTokenDto) {
     return this.authService.logout(dto);
