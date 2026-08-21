@@ -1,0 +1,14 @@
+{
+  "name": "@agentpulse/demo-agent",
+  "version": "0.0.1",
+  "private": true,
+  "description": "Deterministic end-to-end AgentPulse demo workload",
+  "scripts": {
+    "predemo": "pnpm --filter @agentpulse/sdk build",
+    "demo": "node src/index.js",
+    "test": "node test/demo-agent.test.js"
+  },
+  "dependencies": {
+    "@agentpulse/sdk": "workspace:*"
+  }
+}

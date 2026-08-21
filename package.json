@@ -5,6 +5,7 @@
   "scripts": {
     "dev": "turbo run dev",
     "build": "turbo run build",
+    "demo": "pnpm --filter @agentpulse/demo-agent demo",
     "lint": "turbo run lint",
     "test": "turbo run test"
   },
