@@ -9,6 +9,10 @@ import {
 } from '@nestjs/common';
 import { AccessTokenGuard } from '../auth/access-token.guard';
 import { OrganizationMembershipGuard } from '../organizations/organization-membership.guard';
+import {
+  ORGANIZATION_MANAGEMENT_ROLES,
+  RequireOrganizationRoles,
+} from '../organizations/organization-role.utils';
 import type { OrganizationAuthorizedRequest } from '../organizations/organization.types';
 import { CreateProjectDto } from './dto/create-project.dto';
 import { ProjectsService } from './projects.service';
@@ -29,6 +33,7 @@ export class OrganizationProjectsController {
   constructor(private readonly projectsService: ProjectsService) {}
 
   @Post()
+  @RequireOrganizationRoles(...ORGANIZATION_MANAGEMENT_ROLES)
   create(
     @Req() request: OrganizationAuthorizedRequest,
     @Body() dto: CreateProjectDto,

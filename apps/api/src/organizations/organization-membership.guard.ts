@@ -7,16 +7,22 @@ import {
   UnauthorizedException,
 } from '@nestjs/common';
 import { isUUID } from 'class-validator';
+import { Reflector } from '@nestjs/core';
 import { PrismaService } from '../prisma/prisma.service';
+import { type OrganizationAuthorizedRequest } from './organization.types';
 import {
-  ORGANIZATION_ROLES,
-  type OrganizationAuthorizedRequest,
-  type OrganizationRole,
-} from './organization.types';
+  assertOrganizationRole,
+  isOrganizationRole,
+  REQUIRED_ORGANIZATION_ROLES,
+} from './organization-role.utils';
+import type { OrganizationRole } from './organization.types';
 
 @Injectable()
 export class OrganizationMembershipGuard implements CanActivate {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly reflector: Reflector,
+  ) {}
 
   async canActivate(context: ExecutionContext): Promise<boolean> {
     const request = context
@@ -40,8 +46,15 @@ export class OrganizationMembershipGuard implements CanActivate {
       include: { organization: true },
     });
 
-    if (!membership || !this.isOrganizationRole(membership.role)) {
+    if (!membership || !isOrganizationRole(membership.role)) {
       throw new NotFoundException('Organization not found');
+    }
+
+    const requiredRoles = this.reflector.getAllAndOverride<
+      readonly OrganizationRole[]
+    >(REQUIRED_ORGANIZATION_ROLES, [context.getHandler(), context.getClass()]);
+    if (requiredRoles) {
+      assertOrganizationRole(membership.role, requiredRoles);
     }
 
     request.organizationAccess = {
@@ -56,9 +69,5 @@ export class OrganizationMembershipGuard implements CanActivate {
       role: membership.role,
     };
     return true;
-  }
-
-  private isOrganizationRole(role: string): role is OrganizationRole {
-    return (ORGANIZATION_ROLES as readonly string[]).includes(role);
   }
 }

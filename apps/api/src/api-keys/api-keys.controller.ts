@@ -12,6 +12,10 @@ import {
   UseGuards,
 } from '@nestjs/common';
 import { AccessTokenGuard } from '../auth/access-token.guard';
+import {
+  ORGANIZATION_MANAGEMENT_ROLES,
+  RequireOrganizationRoles,
+} from '../organizations/organization-role.utils';
 import { ProjectTenantGuard } from '../projects/project-tenant.guard';
 import type { ProjectAuthorizedRequest } from '../projects/project.types';
 import { ApiKeysService } from './api-keys.service';
@@ -31,6 +35,7 @@ export class ApiKeysController {
   constructor(private readonly apiKeysService: ApiKeysService) {}
 
   @Post()
+  @RequireOrganizationRoles(...ORGANIZATION_MANAGEMENT_ROLES)
   create(
     @Req() request: ProjectAuthorizedRequest,
     @Body() dto: CreateApiKeyDto,
@@ -44,6 +49,7 @@ export class ApiKeysController {
   }
 
   @Post(':apiKeyId/revoke')
+  @RequireOrganizationRoles(...ORGANIZATION_MANAGEMENT_ROLES)
   @HttpCode(HttpStatus.OK)
   revoke(
     @Req() request: ProjectAuthorizedRequest,

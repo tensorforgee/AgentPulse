@@ -5,6 +5,11 @@ import {
 } from '@nestjs/common';
 import { Prisma } from '../generated/prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
+import {
+  assertOrganizationRole,
+  isOrganizationRole,
+  ORGANIZATION_MANAGEMENT_ROLES,
+} from '../organizations/organization-role.utils';
 import type { AlertRuleType } from './alert-rule.types';
 import type { CreateAlertRuleDto } from './dto/create-alert-rule.dto';
 import type { UpdateAlertRuleDto } from './dto/update-alert-rule.dto';
@@ -50,12 +55,11 @@ export class AlertRulesService {
   }
 
   async getForMember(alertRuleId: string, userId: string) {
-    return serializeAlertRule(
-      await this.findRecordForMember(alertRuleId, userId),
-    );
+    const { record } = await this.findAccessForMember(alertRuleId, userId);
+    return serializeAlertRule(record);
   }
 
-  async updateForMember(
+  async updateForManager(
     alertRuleId: string,
     userId: string,
     dto: UpdateAlertRuleDto,
@@ -69,7 +73,11 @@ export class AlertRulesService {
       throw new BadRequestException('At least one field must be provided');
     }
 
-    const current = await this.findRecordForMember(alertRuleId, userId);
+    const { record: current, role } = await this.findAccessForMember(
+      alertRuleId,
+      userId,
+    );
+    assertOrganizationRole(role, ORGANIZATION_MANAGEMENT_ROLES);
     const type = (dto.type ?? current.type) as AlertRuleType;
     const threshold = dto.threshold ?? current.threshold.toNumber();
     validateThreshold(type, threshold);
@@ -83,12 +91,16 @@ export class AlertRulesService {
     return serializeAlertRule(record);
   }
 
-  async deleteForMember(alertRuleId: string, userId: string): Promise<void> {
-    const current = await this.findRecordForMember(alertRuleId, userId);
+  async deleteForManager(alertRuleId: string, userId: string): Promise<void> {
+    const { record: current, role } = await this.findAccessForMember(
+      alertRuleId,
+      userId,
+    );
+    assertOrganizationRole(role, ORGANIZATION_MANAGEMENT_ROLES);
     await this.prisma.alertRule.delete({ where: { id: current.id } });
   }
 
-  private async findRecordForMember(alertRuleId: string, userId: string) {
+  private async findAccessForMember(alertRuleId: string, userId: string) {
     const record = await this.prisma.alertRule.findFirst({
       where: {
         id: alertRuleId,
@@ -96,14 +108,30 @@ export class AlertRulesService {
           organization: { memberships: { some: { userId } } },
         },
       },
-      select: alertRuleSelect,
+      select: {
+        ...alertRuleSelect,
+        project: {
+          select: {
+            organization: {
+              select: {
+                memberships: {
+                  where: { userId },
+                  select: { role: true },
+                  take: 1,
+                },
+              },
+            },
+          },
+        },
+      },
     });
 
-    if (!record) {
+    const role = record?.project.organization.memberships[0]?.role;
+    if (!record || !role || !isOrganizationRole(role)) {
       throw new NotFoundException('Alert rule not found');
     }
 
-    return record;
+    return { record, role };
   }
 }
 
