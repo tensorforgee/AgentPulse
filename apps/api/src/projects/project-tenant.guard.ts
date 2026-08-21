@@ -7,12 +7,26 @@ import {
   UnauthorizedException,
 } from '@nestjs/common';
 import { isUUID } from 'class-validator';
+import { Reflector } from '@nestjs/core';
+import {
+  assertOrganizationRole,
+  isOrganizationRole,
+  REQUIRED_ORGANIZATION_ROLES,
+} from '../organizations/organization-role.utils';
+import type { OrganizationRole } from '../organizations/organization.types';
 import { PrismaService } from '../prisma/prisma.service';
-import { projectSelect, type ProjectAuthorizedRequest } from './project.types';
+import {
+  projectSelect,
+  type ProjectAuthorizedRequest,
+  type ProjectSummary,
+} from './project.types';
 
 @Injectable()
 export class ProjectTenantGuard implements CanActivate {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly reflector: Reflector,
+  ) {}
 
   async canActivate(context: ExecutionContext): Promise<boolean> {
     const request = context
@@ -34,14 +48,42 @@ export class ProjectTenantGuard implements CanActivate {
         id: projectId,
         organization: { memberships: { some: { userId } } },
       },
-      select: projectSelect,
+      select: {
+        ...projectSelect,
+        organization: {
+          select: {
+            memberships: {
+              where: { userId },
+              select: { role: true },
+              take: 1,
+            },
+          },
+        },
+      },
     });
 
-    if (!project) {
+    const role = project?.organization.memberships[0]?.role;
+    if (!project || !role || !isOrganizationRole(role)) {
       throw new NotFoundException('Project not found');
     }
 
-    request.projectAccess = { project };
+    const requiredRoles = this.reflector.getAllAndOverride<
+      readonly OrganizationRole[]
+    >(REQUIRED_ORGANIZATION_ROLES, [context.getHandler(), context.getClass()]);
+    if (requiredRoles) {
+      assertOrganizationRole(role, requiredRoles);
+    }
+
+    const projectSummary: ProjectSummary = {
+      id: project.id,
+      organizationId: project.organizationId,
+      name: project.name,
+      slug: project.slug,
+      description: project.description,
+      createdAt: project.createdAt,
+      updatedAt: project.updatedAt,
+    };
+    request.projectAccess = { project: projectSummary, role };
     return true;
   }
 }

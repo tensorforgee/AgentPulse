@@ -1,5 +1,6 @@
 import type { AuthenticatedRequest } from '../auth/auth.types';
 import type { Prisma } from '../generated/prisma/client';
+import type { OrganizationRole } from '../organizations/organization.types';
 
 export const projectSelect = {
   id: true,
@@ -18,5 +19,6 @@ export type ProjectSummary = Prisma.ProjectGetPayload<{
 export interface ProjectAuthorizedRequest extends AuthenticatedRequest {
   projectAccess?: {
     project: ProjectSummary;
+    role: OrganizationRole;
   };
 }

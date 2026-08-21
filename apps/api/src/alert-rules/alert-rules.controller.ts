@@ -16,6 +16,10 @@ import {
 } from '@nestjs/common';
 import { AccessTokenGuard } from '../auth/access-token.guard';
 import type { AuthenticatedRequest } from '../auth/auth.types';
+import {
+  ORGANIZATION_MANAGEMENT_ROLES,
+  RequireOrganizationRoles,
+} from '../organizations/organization-role.utils';
 import { ProjectTenantGuard } from '../projects/project-tenant.guard';
 import type { ProjectAuthorizedRequest } from '../projects/project.types';
 import { AlertRulesService } from './alert-rules.service';
@@ -44,6 +48,7 @@ export class ProjectAlertRulesController {
   constructor(private readonly alertRulesService: AlertRulesService) {}
 
   @Post()
+  @RequireOrganizationRoles(...ORGANIZATION_MANAGEMENT_ROLES)
   create(
     @Req() request: ProjectAuthorizedRequest,
     @Body() dto: CreateAlertRuleDto,
@@ -79,7 +84,7 @@ export class AlertRulesController {
     @Param('alertRuleId', ParseUUIDPipe) alertRuleId: string,
     @Body() dto: UpdateAlertRuleDto,
   ) {
-    return this.alertRulesService.updateForMember(
+    return this.alertRulesService.updateForManager(
       alertRuleId,
       authenticatedUserId(request),
       dto,
@@ -92,7 +97,7 @@ export class AlertRulesController {
     @Req() request: AuthenticatedRequest,
     @Param('alertRuleId', ParseUUIDPipe) alertRuleId: string,
   ) {
-    return this.alertRulesService.deleteForMember(
+    return this.alertRulesService.deleteForManager(
       alertRuleId,
       authenticatedUserId(request),
     );
