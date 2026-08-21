@@ -7,6 +7,7 @@ import { useWorkspace } from "@/components/workspace-context";
 
 const navigation = [
   { href: "/app", label: "Workspace", exact: true },
+  { href: "/app/runs", label: "Runs", exact: false },
   { href: "/app/api-keys", label: "API keys", exact: false },
 ];
 
@@ -42,7 +43,9 @@ export function AppShell({ children }: { children: ReactNode }) {
           {navigation.map((item) => {
             const active = item.exact
               ? pathname === item.href
-              : pathname.startsWith(item.href);
+              : pathname.startsWith(item.href) ||
+                (item.href === "/app/runs" &&
+                  pathname.startsWith("/app/traces/"));
             return (
               <Link
                 key={item.href}
