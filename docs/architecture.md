@@ -43,8 +43,17 @@ AgentPulse/
 ├── apps/
 │   ├── web/                 # Next.js frontend
 │   └── api/                 # NestJS backend
+├── packages/
+│   ├── shared/              # Telemetry contracts and validation
+│   └── sdk/                 # TypeScript instrumentation SDK
+├── examples/
+│   └── demo-agent/          # Deterministic end-to-end workload
+├── deploy/                  # Production Compose configuration
 ├── docs/
-│   └── architecture.md
+│   ├── architecture.md
+│   ├── database-schema.md
+│   ├── demo.md
+│   └── deployment.md
 ├── AGENTS.md
 ├── README.md
 └── .gitignore
@@ -60,11 +69,14 @@ Organization
     ├── Project B
     └── Project C
 
-Organization-level multi-tenancy will be implemented after the core MVP.
+V1 enforces organization-level multi-tenancy through authenticated membership
+and project ownership checks. Invitations, enterprise identity, and other
+advanced tenant administration remain deferred.
 
 ### Project
 
-A project represents an application or AI-agent system being monitored. Each project will eventually have its own API credentials for sending telemetry.
+A project represents an application or AI-agent system being monitored. Each
+project has its own revocable API credentials for sending telemetry.
 
 ### Agent Run / Trace
 
@@ -201,7 +213,7 @@ Error information should include:
 
 ## Telemetry Ingestion
 
-The AgentPulse SDK will send telemetry to the backend.
+The AgentPulse SDK sends telemetry to the backend.
 
 Initial Month 1 flow:
 
@@ -223,7 +235,7 @@ processing requirements justify them.
 
 ## Authentication and API Keys
 
-Each project will eventually have an API key.
+Each project can have one or more API keys.
 
 Project
     ↓
@@ -285,7 +297,7 @@ This allows telemetry ingestion to remain fast while processing happens asynchro
 
 ## Dashboard
 
-The Next.js dashboard will provide visibility into agent executions.
+The Next.js dashboard provides visibility into agent executions.
 
 Initial dashboard areas:
 - Projects
@@ -374,7 +386,7 @@ The MVP should be built in this order:
 Only after the core flow works should we prioritize:
 - AI Root-Cause Analysis
 - Alerts
-- Multi-tenancy
+- Advanced tenant administration
 - Advanced analytics
 - Scaling
 
