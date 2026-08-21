@@ -7,6 +7,7 @@ import { IngestionModule } from './ingestion/ingestion.module';
 import { OrganizationsModule } from './organizations/organizations.module';
 import { PrismaModule } from './prisma/prisma.module';
 import { ProjectsModule } from './projects/projects.module';
+import { TracesModule } from './traces/traces.module';
 
 @Module({
   imports: [
@@ -16,6 +17,7 @@ import { ProjectsModule } from './projects/projects.module';
     ProjectsModule,
     ApiKeysModule,
     IngestionModule,
+    TracesModule,
   ],
   controllers: [AppController],
   providers: [AppService],
