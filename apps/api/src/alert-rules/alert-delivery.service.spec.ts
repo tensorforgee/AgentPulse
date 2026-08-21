@@ -30,6 +30,7 @@ describe('AlertDeliveryService', () => {
     createdAt: new Date('2026-08-21T10:05:00.000Z'),
   } satisfies AlertEventRecord;
   const originalConfig = process.env.ALERT_WEBHOOK_URLS_JSON;
+  const originalNodeEnvironment = process.env.NODE_ENV;
   let update: jest.MockedFunction<UpdateAlertEvent>;
   let service: AlertDeliveryService;
 
@@ -56,6 +57,11 @@ describe('AlertDeliveryService', () => {
       delete process.env.ALERT_WEBHOOK_URLS_JSON;
     } else {
       process.env.ALERT_WEBHOOK_URLS_JSON = originalConfig;
+    }
+    if (originalNodeEnvironment === undefined) {
+      delete process.env.NODE_ENV;
+    } else {
+      process.env.NODE_ENV = originalNodeEnvironment;
     }
   });
 
@@ -91,5 +97,15 @@ describe('AlertDeliveryService', () => {
     expect(update.mock.calls.at(-1)?.[0].data.deliveryError).toBe(
       'Request failed',
     );
+  });
+
+  it('does not deliver to plaintext HTTP webhooks in production', async () => {
+    process.env.NODE_ENV = 'production';
+    const fetchMock = jest.spyOn(global, 'fetch');
+
+    await expect(service.deliver(event)).resolves.toMatchObject({
+      deliveryStatus: 'not_configured',
+    });
+    expect(fetchMock).not.toHaveBeenCalled();
   });
 });

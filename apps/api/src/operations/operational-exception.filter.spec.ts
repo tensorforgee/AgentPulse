@@ -65,4 +65,18 @@ describe('OperationalExceptionFilter', () => {
     });
     expect(JSON.stringify(logEvent.mock.calls)).not.toContain(secret);
   });
+
+  it('sanitizes unknown library-style 5xx error messages', () => {
+    const { filter, host, json, logEvent, status } = setup();
+    const secret = 'upstream-secret-must-not-leak';
+
+    filter.catch({ statusCode: 502, message: secret }, host);
+
+    expect(status).toHaveBeenCalledWith(502);
+    expect(json).toHaveBeenCalledWith({
+      statusCode: 502,
+      message: 'Internal server error',
+    });
+    expect(JSON.stringify(logEvent.mock.calls)).not.toContain(secret);
+  });
 });

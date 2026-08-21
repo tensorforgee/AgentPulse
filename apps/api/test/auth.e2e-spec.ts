@@ -151,6 +151,13 @@ describe('Authentication (e2e)', () => {
       .expect(200);
   });
 
+  it('rejects oversized refresh tokens before verification', () => {
+    return request(app.getHttpServer())
+      .post('/auth/refresh')
+      .send({ refreshToken: 'x'.repeat(4097) })
+      .expect(400);
+  });
+
   it('revokes the active refresh token on logout', async () => {
     const loginResponse = await request(app.getHttpServer())
       .post('/auth/login')
