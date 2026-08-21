@@ -2,6 +2,14 @@ import { Module } from '@nestjs/common';
 import { AuthModule } from '../auth/auth.module';
 import { PrismaModule } from '../prisma/prisma.module';
 import { ProjectsModule } from '../projects/projects.module';
+import { RealtimeModule } from '../realtime/realtime.module';
+import {
+  AlertEventsController,
+  ProjectAlertEventsController,
+} from './alert-events.controller';
+import { AlertEventsService } from './alert-events.service';
+import { AlertDeliveryService } from './alert-delivery.service';
+import { AlertEvaluationService } from './alert-evaluation.service';
 import {
   AlertRulesController,
   ProjectAlertRulesController,
@@ -9,8 +17,19 @@ import {
 import { AlertRulesService } from './alert-rules.service';
 
 @Module({
-  imports: [AuthModule, ProjectsModule, PrismaModule],
-  controllers: [ProjectAlertRulesController, AlertRulesController],
-  providers: [AlertRulesService],
+  imports: [AuthModule, ProjectsModule, PrismaModule, RealtimeModule],
+  controllers: [
+    ProjectAlertRulesController,
+    AlertRulesController,
+    ProjectAlertEventsController,
+    AlertEventsController,
+  ],
+  providers: [
+    AlertRulesService,
+    AlertEventsService,
+    AlertDeliveryService,
+    AlertEvaluationService,
+  ],
+  exports: [AlertEvaluationService],
 })
 export class AlertRulesModule {}

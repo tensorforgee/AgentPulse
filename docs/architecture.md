@@ -368,6 +368,28 @@ Slack / Email / Dashboard
 
 Alerts are not part of the first implementation milestone.
 
+### Advanced V1 alert execution
+
+After telemetry is committed, enabled project alert rules are evaluated
+synchronously from persisted completed traces in the deterministic five-minute
+window ending at the ingested trace's `started_at`. Error rate is failed runs
+divided by completed runs, latency is average completed-run duration, and cost
+is the sum of completed-run cost in that window. A triggered rule creates one
+`alert_events` row per rule and evaluation trace, which makes repeated ingestion
+idempotent. Webhook delivery happens only after the event is durable and cannot
+roll back telemetry.
+
+The API publishes best-effort, project-scoped Server-Sent Events for new
+telemetry and triggered alerts. SSE is an in-process dashboard optimization;
+PostgreSQL remains the source of truth and the dashboard continues to use its
+normal read APIs when no stream is connected. Redis and BullMQ are not required
+for this single-process V1 implementation.
+
+Failed-trace RCA uses an isolated OpenAI-compatible HTTP adapter configured only
+through environment variables. It receives trace/span operational status and
+error context, not captured input/output payloads. When no provider is
+configured or a request fails, the API returns a local evidence-based fallback.
+
 ## MVP Development Flow
 
 The MVP should be built in this order:

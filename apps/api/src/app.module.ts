@@ -8,6 +8,7 @@ import { IngestionModule } from './ingestion/ingestion.module';
 import { OrganizationsModule } from './organizations/organizations.module';
 import { PrismaModule } from './prisma/prisma.module';
 import { ProjectsModule } from './projects/projects.module';
+import { RcaModule } from './rca/rca.module';
 import { TracesModule } from './traces/traces.module';
 
 @Module({
@@ -20,6 +21,7 @@ import { TracesModule } from './traces/traces.module';
     ApiKeysModule,
     IngestionModule,
     TracesModule,
+    RcaModule,
   ],
   controllers: [AppController],
   providers: [AppService],
