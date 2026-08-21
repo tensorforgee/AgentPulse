@@ -63,6 +63,7 @@ model Project {
   organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
   apiKeys        ApiKey[]
   alertRules     AlertRule[]
+  alertEvents    AlertEvent[]
   traces         Trace[]
 
   @@unique([organizationId, slug], map: "projects_org_id_slug_key")
@@ -80,9 +81,35 @@ model AlertRule {
   createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
   updatedAt DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
   project   Project  @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  events    AlertEvent[]
 
   @@index([projectId], map: "alert_rules_project_id_idx")
   @@map("alert_rules")
+}
+
+model AlertEvent {
+  id                  String     @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  projectId           String     @map("project_id") @db.Uuid
+  alertRuleId         String?    @map("alert_rule_id") @db.Uuid
+  traceId             String     @map("trace_id") @db.Uuid
+  ruleName            String     @map("rule_name") @db.Text
+  ruleType            String     @map("rule_type") @db.Text
+  threshold           Decimal    @db.Decimal(18, 8)
+  observedValue       Decimal    @map("observed_value") @db.Decimal(18, 8)
+  windowStartedAt     DateTime   @map("window_started_at") @db.Timestamptz(6)
+  windowEndedAt       DateTime   @map("window_ended_at") @db.Timestamptz(6)
+  deliveryStatus      String     @default("pending") @map("delivery_status") @db.Text
+  deliveryAttemptedAt DateTime?  @map("delivery_attempted_at") @db.Timestamptz(6)
+  deliveryError       String?    @map("delivery_error") @db.Text
+  createdAt           DateTime   @default(now()) @map("created_at") @db.Timestamptz(6)
+  project             Project    @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  alertRule           AlertRule? @relation(fields: [alertRuleId], references: [id], onDelete: SetNull)
+  trace               Trace      @relation(fields: [traceId], references: [id], onDelete: Cascade)
+
+  @@unique([alertRuleId, traceId], map: "alert_events_alert_rule_id_trace_id_key")
+  @@index([projectId, createdAt(sort: Desc)], map: "alert_events_project_id_created_at_idx")
+  @@index([traceId], map: "alert_events_trace_id_idx")
+  @@map("alert_events")
 }
 
 model ApiKey {
@@ -121,6 +148,7 @@ model Trace {
   createdAt    DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
   project      Project   @relation(fields: [projectId], references: [id], onDelete: Cascade)
   spans        Span[]
+  alertEvents  AlertEvent[]
 
   @@index([projectId, startedAt(sort: Desc)], map: "traces_project_id_started_at_idx")
   @@map("traces")

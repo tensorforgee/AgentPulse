@@ -3,10 +3,9 @@ import { NextRequest, NextResponse } from "next/server";
 export const ACCESS_COOKIE = "agentpulse_access";
 export const REFRESH_COOKIE = "agentpulse_refresh";
 
-const API_URL = (process.env.AGENTPULSE_API_URL ?? "http://127.0.0.1:5000").replace(
-  /\/$/,
-  "",
-);
+const API_URL = (
+  process.env.AGENTPULSE_API_URL ?? "http://127.0.0.1:5000"
+).replace(/\/$/, "");
 
 interface AuthPayload {
   user?: unknown;
@@ -14,10 +13,7 @@ interface AuthPayload {
   refreshToken: string;
 }
 
-const refreshRequests = new Map<
-  string,
-  Promise<AuthPayload | undefined>
->();
+const refreshRequests = new Map<string, Promise<AuthPayload | undefined>>();
 
 function cookieOptions(maxAge: number) {
   return {
@@ -43,11 +39,7 @@ function clearSessionCookies(response: NextResponse) {
   response.cookies.set(REFRESH_COOKIE, "", cookieOptions(0));
 }
 
-async function callApi(
-  path: string,
-  init: RequestInit,
-  accessToken?: string,
-) {
+async function callApi(path: string, init: RequestInit, accessToken?: string) {
   const headers = new Headers(init.headers);
   headers.set("accept", "application/json");
   if (init.body) headers.set("content-type", "application/json");
@@ -65,7 +57,8 @@ async function responseFromApi(upstream: Response) {
   return new NextResponse(body || null, {
     status: upstream.status,
     headers: {
-      "content-type": upstream.headers.get("content-type") ?? "application/json",
+      "content-type":
+        upstream.headers.get("content-type") ?? "application/json",
     },
   });
 }
@@ -143,6 +136,43 @@ export async function authenticatedProxy(
   }
 
   const response = await responseFromApi(upstream);
+  if (refreshed) setSessionCookies(response, refreshed);
+  else if (upstream.status === 401) clearSessionCookies(response);
+
+  return response;
+}
+
+export async function authenticatedStreamProxy(
+  request: NextRequest,
+  path: string,
+) {
+  const accessToken = request.cookies.get(ACCESS_COOKIE)?.value;
+  let upstream = await callApi(path, { method: "GET" }, accessToken);
+  let refreshed: AuthPayload | undefined;
+
+  if (upstream.status === 401) {
+    const refreshToken = request.cookies.get(REFRESH_COOKIE)?.value;
+    if (refreshToken) {
+      refreshed = await refreshSession(refreshToken);
+      if (refreshed) {
+        upstream = await callApi(
+          path,
+          { method: "GET" },
+          refreshed.accessToken,
+        );
+      }
+    }
+  }
+
+  const response = new NextResponse(upstream.body, {
+    status: upstream.status,
+    headers: {
+      "cache-control": "no-cache, no-transform",
+      "content-type":
+        upstream.headers.get("content-type") ?? "text/event-stream",
+      "x-accel-buffering": "no",
+    },
+  });
   if (refreshed) setSessionCookies(response, refreshed);
   else if (upstream.status === 401) clearSessionCookies(response);
 

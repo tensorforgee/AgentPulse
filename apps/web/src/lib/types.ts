@@ -104,3 +104,32 @@ export interface SpanDetail {
 export interface TraceDetail extends TraceListItem {
   spans: SpanDetail[];
 }
+
+export interface AlertEvent {
+  id: string;
+  projectId: string;
+  alertRuleId: string | null;
+  traceId: string;
+  ruleName: string;
+  ruleType: "error_rate" | "latency" | "cost";
+  threshold: string;
+  observedValue: string;
+  windowStartedAt: string;
+  windowEndedAt: string;
+  deliveryStatus: "pending" | "not_configured" | "delivered" | "failed";
+  deliveryAttemptedAt: string | null;
+  createdAt: string;
+}
+
+export interface RcaResult {
+  status: "complete" | "unavailable" | "provider_error";
+  providerConfigured: boolean;
+  explanation: string;
+  likelyFailingSpan: {
+    id: string;
+    name: string;
+    type: string;
+    errorType: string | null;
+    errorMessage: string | null;
+  } | null;
+}

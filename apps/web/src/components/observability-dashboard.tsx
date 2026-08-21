@@ -12,6 +12,7 @@ import {
   formatTimestamp,
 } from "@/lib/telemetry-format";
 import type {
+  AlertEvent,
   TelemetryStatus,
   TraceListItem,
   TraceListResponse,
@@ -43,6 +44,15 @@ export function ObservabilityDashboard() {
     traces: TraceListItem[];
     error: string;
   }>({ projectId: "", traces: [], error: "" });
+  const [alertState, setAlertState] = useState<{
+    projectId: string;
+    events: AlertEvent[];
+    error: string;
+  }>({ projectId: "", events: [], error: "" });
+  const [realtimeStatus, setRealtimeStatus] = useState<
+    "connecting" | "connected" | "reconnecting"
+  >("connecting");
+  const [refreshVersion, setRefreshVersion] = useState(0);
 
   const query = useMemo(() => {
     const params = new URLSearchParams({
@@ -52,7 +62,10 @@ export function ObservabilityDashboard() {
     if (filters.status) params.set("status", filters.status);
     if (filters.search) params.set("search", filters.search);
     if (filters.from) {
-      params.set("from", new Date(`${filters.from}T00:00:00.000Z`).toISOString());
+      params.set(
+        "from",
+        new Date(`${filters.from}T00:00:00.000Z`).toISOString(),
+      );
     }
     if (filters.to) {
       params.set("to", new Date(`${filters.to}T23:59:59.999Z`).toISOString());
@@ -61,6 +74,25 @@ export function ObservabilityDashboard() {
   }, [filters, page]);
 
   const requestKey = selectedProject ? `${selectedProject.id}?${query}` : "";
+
+  useEffect(() => {
+    if (!selectedProject) return;
+
+    const source = new EventSource(
+      `/api/projects/${selectedProject.id}/events`,
+    );
+    const refresh = () => setRefreshVersion((current) => current + 1);
+    source.onopen = () => setRealtimeStatus("connected");
+    source.onerror = () => setRealtimeStatus("reconnecting");
+    source.addEventListener("telemetry.ingested", refresh);
+    source.addEventListener("alert.triggered", refresh);
+
+    return () => {
+      source.removeEventListener("telemetry.ingested", refresh);
+      source.removeEventListener("alert.triggered", refresh);
+      source.close();
+    };
+  }, [selectedProject]);
 
   useEffect(() => {
     if (!selectedProject) return;
@@ -77,7 +109,8 @@ export function ObservabilityDashboard() {
           setListState({
             key: requestKey,
             response: null,
-            error: caught instanceof Error ? caught.message : "Could not load runs",
+            error:
+              caught instanceof Error ? caught.message : "Could not load runs",
           });
         }
       },
@@ -86,7 +119,7 @@ export function ObservabilityDashboard() {
     return () => {
       active = false;
     };
-  }, [query, requestKey, selectedProject]);
+  }, [query, refreshVersion, requestKey, selectedProject]);
 
   useEffect(() => {
     if (!selectedProject) return;
@@ -104,7 +137,9 @@ export function ObservabilityDashboard() {
             projectId: selectedProject.id,
             traces: [],
             error:
-              caught instanceof Error ? caught.message : "Could not load metrics",
+              caught instanceof Error
+                ? caught.message
+                : "Could not load metrics",
           });
         }
       },
@@ -113,14 +148,47 @@ export function ObservabilityDashboard() {
     return () => {
       active = false;
     };
-  }, [selectedProject]);
+  }, [refreshVersion, selectedProject]);
+
+  useEffect(() => {
+    if (!selectedProject) return;
+    let active = true;
+
+    requestJson<AlertEvent[]>(
+      `/api/projects/${selectedProject.id}/alert-events`,
+    ).then(
+      (events) => {
+        if (active) {
+          setAlertState({ projectId: selectedProject.id, events, error: "" });
+        }
+      },
+      (caught: unknown) => {
+        if (active) {
+          setAlertState({
+            projectId: selectedProject.id,
+            events: [],
+            error:
+              caught instanceof Error
+                ? caught.message
+                : "Could not load alerts",
+          });
+        }
+      },
+    );
+
+    return () => {
+      active = false;
+    };
+  }, [refreshVersion, selectedProject]);
 
   if (!selectedProject) {
     return (
       <div className="mx-auto max-w-5xl">
         <DashboardHeading />
         <div className="mt-8 rounded-2xl border border-dashed border-slate-300 bg-white p-10 text-center">
-          <h2 className="text-lg font-semibold">Select a project to view runs</h2>
+          <h2 className="text-lg font-semibold">
+            Select a project to view runs
+          </h2>
           <p className="mt-2 text-sm text-slate-500">
             Create a project in the workspace, then return here to inspect its
             telemetry.
@@ -136,8 +204,7 @@ export function ObservabilityDashboard() {
     );
   }
 
-  const list =
-    listState.key === requestKey ? listState.response : null;
+  const list = listState.key === requestKey ? listState.response : null;
   const listError = listState.key === requestKey ? listState.error : "";
   const metrics =
     metricState.projectId === selectedProject.id
@@ -145,6 +212,10 @@ export function ObservabilityDashboard() {
       : null;
   const metricError =
     metricState.projectId === selectedProject.id ? metricState.error : "";
+  const alertEvents =
+    alertState.projectId === selectedProject.id ? alertState.events : [];
+  const alertError =
+    alertState.projectId === selectedProject.id ? alertState.error : "";
 
   function applyFilters(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -176,7 +247,9 @@ export function ObservabilityDashboard() {
           />
           <MetricCard
             label="Success / error"
-            value={metrics ? `${metrics.successRate}% / ${metrics.errorRate}%` : "…"}
+            value={
+              metrics ? `${metrics.successRate}% / ${metrics.errorRate}%` : "…"
+            }
             detail="Across all run statuses"
           />
           <MetricCard
@@ -196,6 +269,12 @@ export function ObservabilityDashboard() {
           />
         </section>
       )}
+
+      <AlertEventsPanel
+        events={alertEvents}
+        error={alertError}
+        realtimeStatus={realtimeStatus}
+      />
 
       <section className="mt-8 overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">
         <div className="border-b border-slate-200 p-5 sm:p-6">
@@ -317,8 +396,12 @@ export function ObservabilityDashboard() {
                     <th className="px-6 py-3 font-semibold">Run</th>
                     <th className="px-4 py-3 font-semibold">Status</th>
                     <th className="px-4 py-3 font-semibold">Started</th>
-                    <th className="px-4 py-3 text-right font-semibold">Latency</th>
-                    <th className="px-4 py-3 text-right font-semibold">Tokens</th>
+                    <th className="px-4 py-3 text-right font-semibold">
+                      Latency
+                    </th>
+                    <th className="px-4 py-3 text-right font-semibold">
+                      Tokens
+                    </th>
                     <th className="px-6 py-3 text-right font-semibold">Cost</th>
                   </tr>
                 </thead>
@@ -375,6 +458,92 @@ export function ObservabilityDashboard() {
   );
 }
 
+function AlertEventsPanel({
+  events,
+  error,
+  realtimeStatus,
+}: {
+  events: AlertEvent[];
+  error: string;
+  realtimeStatus: "connecting" | "connected" | "reconnecting";
+}) {
+  return (
+    <section className="mt-8 rounded-2xl border border-slate-200 bg-white shadow-sm">
+      <div className="flex flex-col gap-2 border-b border-slate-200 p-5 sm:flex-row sm:items-center sm:justify-between sm:p-6">
+        <div>
+          <h2 className="text-lg font-semibold">Triggered alerts</h2>
+          <p className="mt-1 text-sm text-slate-500">
+            Rolling five-minute evaluations from persisted completed traces.
+          </p>
+        </div>
+        <span
+          className={`w-fit rounded-full px-2.5 py-1 text-xs font-semibold ${
+            realtimeStatus === "connected"
+              ? "bg-emerald-50 text-emerald-700"
+              : "bg-amber-50 text-amber-700"
+          }`}
+        >
+          {realtimeStatus === "connected" ? "Live" : "Reconnecting"}
+        </span>
+      </div>
+
+      {error ? (
+        <div className="p-6">
+          <ErrorMessage message={error} />
+        </div>
+      ) : events.length === 0 ? (
+        <p className="p-8 text-center text-sm text-slate-500">
+          No alert rules have triggered for this project.
+        </p>
+      ) : (
+        <div className="divide-y divide-slate-200">
+          {events.slice(0, 8).map((event) => (
+            <article
+              key={event.id}
+              className="grid gap-3 p-5 sm:grid-cols-[1fr_auto] sm:items-center sm:p-6"
+            >
+              <div>
+                <div className="flex flex-wrap items-center gap-2">
+                  <span className="rounded-md bg-red-50 px-2 py-1 text-xs font-semibold text-red-700">
+                    {event.ruleType.replace("_", " ")}
+                  </span>
+                  <span className="text-xs text-slate-400">
+                    {formatTimestamp(event.createdAt)}
+                  </span>
+                </div>
+                <Link
+                  href={`/app/traces/${event.traceId}`}
+                  className="mt-2 block font-semibold hover:text-indigo-600"
+                >
+                  {event.ruleName}
+                </Link>
+                <p className="mt-1 text-sm text-slate-500">
+                  Observed{" "}
+                  {formatAlertValue(event.ruleType, event.observedValue)} ·
+                  threshold {formatAlertValue(event.ruleType, event.threshold)}
+                </p>
+              </div>
+              <span className="w-fit rounded-full bg-slate-100 px-2.5 py-1 text-xs font-medium text-slate-600">
+                Webhook: {event.deliveryStatus.replace("_", " ")}
+              </span>
+            </article>
+          ))}
+        </div>
+      )}
+    </section>
+  );
+}
+
+function formatAlertValue(type: AlertEvent["ruleType"], value: string) {
+  if (type === "error_rate") {
+    return `${(Number(value) * 100).toFixed(1)}%`;
+  }
+  if (type === "latency") {
+    return formatDuration(Math.round(Number(value)));
+  }
+  return formatCost(value);
+}
+
 async function loadAllProjectTraces(projectId: string) {
   const first = await requestJson<TraceListResponse>(
     `/api/projects/${projectId}/traces?page=1&pageSize=100`,
@@ -405,7 +574,9 @@ function calculateMetrics(traces: TraceListItem[]) {
     successRate: percentage(success),
     errorRate: percentage(failed),
     averageLatency: durations.length
-      ? Math.round(durations.reduce((sum, value) => sum + value, 0) / durations.length)
+      ? Math.round(
+          durations.reduce((sum, value) => sum + value, 0) / durations.length,
+        )
       : null,
     totalTokens: traces.reduce((sum, trace) => sum + trace.totalTokens, 0),
     totalCost: traces.reduce((sum, trace) => sum + Number(trace.totalCost), 0),
@@ -492,7 +663,10 @@ function TableLoading() {
   return (
     <div className="space-y-3 p-6" aria-label="Loading runs">
       {[0, 1, 2].map((index) => (
-        <div key={index} className="h-14 animate-pulse rounded-lg bg-slate-100" />
+        <div
+          key={index}
+          className="h-14 animate-pulse rounded-lg bg-slate-100"
+        />
       ))}
     </div>
   );
@@ -510,5 +684,7 @@ function ErrorMessage({ message }: { message: string }) {
 }
 
 function hasFilters(filters: Filters) {
-  return Boolean(filters.status || filters.search || filters.from || filters.to);
+  return Boolean(
+    filters.status || filters.search || filters.from || filters.to,
+  );
 }
