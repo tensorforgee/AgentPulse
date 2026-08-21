@@ -3,12 +3,19 @@ import { AlertRulesModule } from '../alert-rules/alert-rules.module';
 import { ApiKeysModule } from '../api-keys/api-keys.module';
 import { PrismaModule } from '../prisma/prisma.module';
 import { RealtimeModule } from '../realtime/realtime.module';
+import { RateLimitModule } from '../rate-limit/rate-limit.module';
 import { IngestionController } from './ingestion.controller';
 import { IngestionService } from './ingestion.service';
 import { PostIngestProcessorService } from './post-ingest-processor.service';
 
 @Module({
-  imports: [ApiKeysModule, PrismaModule, AlertRulesModule, RealtimeModule],
+  imports: [
+    ApiKeysModule,
+    PrismaModule,
+    AlertRulesModule,
+    RealtimeModule,
+    RateLimitModule,
+  ],
   controllers: [IngestionController],
   providers: [IngestionService, PostIngestProcessorService],
 })
