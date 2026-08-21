@@ -62,11 +62,27 @@ model Project {
   updatedAt      DateTime     @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
   organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
   apiKeys        ApiKey[]
+  alertRules     AlertRule[]
   traces         Trace[]
 
   @@unique([organizationId, slug], map: "projects_org_id_slug_key")
   @@index([organizationId], map: "projects_org_id_idx")
   @@map("projects")
+}
+
+model AlertRule {
+  id        String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  projectId String   @map("project_id") @db.Uuid
+  name      String   @db.Text
+  type      String   @db.Text
+  threshold Decimal  @db.Decimal(18, 8)
+  enabled   Boolean  @default(true)
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
+  project   Project  @relation(fields: [projectId], references: [id], onDelete: Cascade)
+
+  @@index([projectId], map: "alert_rules_project_id_idx")
+  @@map("alert_rules")
 }
 
 model ApiKey {

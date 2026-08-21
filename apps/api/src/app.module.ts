@@ -1,4 +1,5 @@
 import { Module } from '@nestjs/common';
+import { AlertRulesModule } from './alert-rules/alert-rules.module';
 import { AppController } from './app.controller';
 import { AppService } from './app.service';
 import { ApiKeysModule } from './api-keys/api-keys.module';
@@ -15,6 +16,7 @@ import { TracesModule } from './traces/traces.module';
     AuthModule,
     OrganizationsModule,
     ProjectsModule,
+    AlertRulesModule,
     ApiKeysModule,
     IngestionModule,
     TracesModule,

@@ -20,7 +20,10 @@ export class PrismaService
 {
   constructor() {
     super({
-      adapter: new PrismaPg({ connectionString: databaseUrl() }),
+      adapter: new PrismaPg({
+        connectionString: databaseUrl(),
+        options: '-c timezone=UTC',
+      }),
     });
   }
 
