@@ -15,6 +15,7 @@
     "prisma:validate": "prisma validate",
     "db:migrate": "prisma migrate dev",
     "db:migrate:deploy": "prisma migrate deploy",
+    "db:migrate:status": "prisma migrate status",
     "db:verify": "tsx prisma/verify.ts",
     "load:test": "tsx scripts/load-test.ts",
     "load:test:local": "tsx scripts/load-test-local.ts",
