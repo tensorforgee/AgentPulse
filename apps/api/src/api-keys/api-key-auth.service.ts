@@ -35,10 +35,18 @@ export class ApiKeyAuthService {
       throw new UnauthorizedException('Invalid API key');
     }
 
-    await this.prisma.apiKey.update({
-      where: { id: matched.id },
+    const usage = await this.prisma.apiKey.updateMany({
+      where: {
+        id: matched.id,
+        revokedAt: null,
+        OR: [{ expiresAt: null }, { expiresAt: { gt: now } }],
+      },
       data: { lastUsedAt: now },
     });
+
+    if (usage.count !== 1) {
+      throw new UnauthorizedException('Invalid API key');
+    }
 
     return {
       apiKeyId: matched.id,

@@ -150,4 +150,32 @@ describe('Authentication (e2e)', () => {
       .set('Authorization', `Bearer ${rotated.accessToken}`)
       .expect(200);
   });
+
+  it('revokes the active refresh token on logout', async () => {
+    const loginResponse = await request(app.getHttpServer())
+      .post('/auth/login')
+      .send({ email, password })
+      .expect(200);
+    const auth = loginResponse.body as AuthResponse;
+
+    await request(app.getHttpServer())
+      .post('/auth/logout')
+      .send({ refreshToken: auth.refreshToken })
+      .expect(204);
+
+    const storedUser = await prisma.user.findUniqueOrThrow({
+      where: { id: auth.user.id },
+    });
+    expect(storedUser.refreshTokenHash).toBeNull();
+
+    await request(app.getHttpServer())
+      .post('/auth/refresh')
+      .send({ refreshToken: auth.refreshToken })
+      .expect(401);
+
+    await request(app.getHttpServer())
+      .post('/auth/logout')
+      .send({ refreshToken: auth.refreshToken })
+      .expect(204);
+  });
 });

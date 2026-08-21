@@ -145,6 +145,21 @@ export class AuthService {
     return this.issueAndStoreTokens(user.id, user.refreshTokenHash);
   }
 
+  async logout(dto: RefreshTokenDto): Promise<void> {
+    try {
+      const payload = await this.verifyRefreshToken(dto.refreshToken);
+      await this.prisma.user.updateMany({
+        where: {
+          id: payload.sub,
+          refreshTokenHash: hashRefreshToken(dto.refreshToken),
+        },
+        data: { refreshTokenHash: null },
+      });
+    } catch {
+      // Logout is intentionally idempotent and does not reveal token validity.
+    }
+  }
+
   async me(userId: string) {
     const user = await this.prisma.user.findUnique({
       where: { id: userId },

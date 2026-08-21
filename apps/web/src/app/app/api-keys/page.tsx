@@ -59,10 +59,14 @@ export default function ApiKeysPage() {
         `/api/projects/${selectedProject.id}/api-keys`,
         { method: "POST", body: JSON.stringify({ name }) },
       );
-      setCreatedKey(created.key);
+      const { key, ...metadata } = created;
+      setCreatedKey(key);
       setKeyResult((current) => ({
         projectId: selectedProject.id,
-        keys: [created, ...(current.projectId === selectedProject.id ? current.keys : [])],
+        keys: [
+          metadata,
+          ...(current.projectId === selectedProject.id ? current.keys : []),
+        ],
       }));
       setName("");
     } catch (caught) {
