@@ -1,12 +1,13 @@
 import { Module } from '@nestjs/common';
 import { AuthModule } from '../auth/auth.module';
+import { RateLimitModule } from '../rate-limit/rate-limit.module';
 import { OpenAiRcaProvider } from './openai-rca.provider';
 import { RcaController } from './rca.controller';
 import { RCA_PROVIDER } from './rca-provider';
 import { RcaService } from './rca.service';
 
 @Module({
-  imports: [AuthModule],
+  imports: [AuthModule, RateLimitModule],
   controllers: [RcaController],
   providers: [
     RcaService,
