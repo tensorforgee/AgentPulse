@@ -5,18 +5,22 @@
   "author": "",
   "private": true,
   "license": "UNLICENSED",
+  "files": [
+    "dist"
+  ],
   "scripts": {
     "prebuild": "pnpm --filter @agentpulse/shared build && prisma generate",
     "build": "nest build",
     "prisma:generate": "prisma generate",
     "prisma:validate": "prisma validate",
     "db:migrate": "prisma migrate dev",
+    "db:migrate:deploy": "prisma migrate deploy",
     "db:verify": "tsx prisma/verify.ts",
     "format": "prettier --write \"src/**/*.ts\" \"test/**/*.ts\"",
     "start": "nest start",
     "start:dev": "nest start --watch",
     "start:debug": "nest start --debug --watch",
-    "start:prod": "node dist/main",
+    "start:prod": "node dist/src/main.js",
     "lint": "eslint \"{src,apps,libs,test}/**/*.ts\"",
     "test": "jest",
     "test:watch": "jest --watch",
