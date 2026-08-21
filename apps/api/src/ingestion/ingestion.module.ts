@@ -5,10 +5,11 @@ import { PrismaModule } from '../prisma/prisma.module';
 import { RealtimeModule } from '../realtime/realtime.module';
 import { IngestionController } from './ingestion.controller';
 import { IngestionService } from './ingestion.service';
+import { PostIngestProcessorService } from './post-ingest-processor.service';
 
 @Module({
   imports: [ApiKeysModule, PrismaModule, AlertRulesModule, RealtimeModule],
   controllers: [IngestionController],
-  providers: [IngestionService],
+  providers: [IngestionService, PostIngestProcessorService],
 })
 export class IngestionModule {}
