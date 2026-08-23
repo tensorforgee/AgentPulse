@@ -109,16 +109,21 @@ function TraceContent({ trace }: { trace: TraceDetailType }) {
         <div className="min-w-0">
           <div className="flex flex-wrap items-center gap-3">
             <StatusBadge status={trace.status} />
-            <span className="font-mono text-xs text-slate-400">{trace.id}</span>
+            <span
+              className="max-w-full truncate font-mono text-xs text-slate-400"
+              title={trace.id}
+            >
+              {trace.id}
+            </span>
           </div>
-          <h1 className="mt-3 text-3xl font-semibold tracking-tight">
+          <h1 className="mt-3 break-words text-3xl font-semibold tracking-tight">
             {trace.name || trace.agentName}
           </h1>
-          <p className="mt-2 text-sm text-slate-500">
+          <p className="mt-2 break-words text-sm text-slate-500">
             {trace.agentName} · Started {formatTimestamp(trace.startedAt)}
           </p>
         </div>
-        <div className="grid grid-cols-3 gap-3 sm:min-w-[420px]">
+        <div className="grid grid-cols-1 gap-3 sm:min-w-[420px] sm:grid-cols-3">
           <MiniMetric
             label="Latency"
             value={formatDuration(trace.durationMs)}
@@ -136,7 +141,7 @@ function TraceContent({ trace }: { trace: TraceDetailType }) {
           <h2 className="mt-2 font-semibold text-red-950">
             {trace.errorType || "Execution error"}
           </h2>
-          <p className="mt-1 text-sm leading-6 text-red-800">
+          <p className="mt-1 break-words text-sm leading-6 text-red-800">
             {trace.errorMessage || "No error message was captured."}
           </p>
         </section>
@@ -161,7 +166,8 @@ function TraceContent({ trace }: { trace: TraceDetailType }) {
               type="button"
               disabled={rcaLoading}
               onClick={() => void requestRca()}
-              className="rounded-lg bg-indigo-600 px-4 py-2.5 text-sm font-semibold text-white disabled:cursor-wait disabled:opacity-60"
+              aria-busy={rcaLoading}
+              className="w-fit shrink-0 rounded-lg bg-indigo-600 px-4 py-2.5 text-sm font-semibold text-white transition hover:bg-indigo-700 disabled:cursor-wait disabled:opacity-60"
             >
               {rcaLoading
                 ? "Analyzing…"
@@ -171,11 +177,19 @@ function TraceContent({ trace }: { trace: TraceDetailType }) {
             </button>
           </div>
           {rcaError ? (
-            <p className="mt-4 text-sm text-red-700">{rcaError}</p>
+            <p
+              role="alert"
+              className="mt-4 rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700"
+            >
+              {rcaError}
+            </p>
           ) : null}
           {rca ? (
-            <div className="mt-4 rounded-xl bg-white p-4 text-sm leading-6 text-slate-700 shadow-sm">
-              <p>{rca.explanation}</p>
+            <div
+              className="mt-4 rounded-xl bg-white p-4 text-sm leading-6 text-slate-700 shadow-sm"
+              aria-live="polite"
+            >
+              <p className="break-words">{rca.explanation}</p>
               {rca.likelyFailingSpan ? (
                 <p className="mt-2 text-xs text-slate-500">
                   Likely span: {rca.likelyFailingSpan.name} ·{" "}
@@ -212,8 +226,11 @@ function TraceContent({ trace }: { trace: TraceDetailType }) {
         </div>
 
         {tree.length === 0 ? (
-          <div className="p-10 text-center text-sm text-slate-500">
-            This trace has no spans.
+          <div className="p-10 text-center">
+            <p className="font-medium text-slate-700">No spans captured</p>
+            <p className="mt-1 text-sm text-slate-500">
+              This run contains trace-level telemetry only.
+            </p>
           </div>
         ) : (
           <div className="divide-y divide-slate-200">
@@ -278,7 +295,7 @@ function SpanBranch({
       <article className="p-5 sm:p-6">
         <div
           className="border-l-2 border-slate-200 pl-4"
-          style={{ marginLeft: Math.min(depth, 6) * 20 }}
+          style={{ marginLeft: Math.min(depth, 4) * 12 }}
         >
           <div className="flex flex-col gap-4 xl:flex-row xl:items-start xl:justify-between">
             <div className="min-w-0">
@@ -295,8 +312,15 @@ function SpanBranch({
                   <span className="text-xs text-slate-400">root span</span>
                 )}
               </div>
-              <h3 className="mt-2 font-semibold">{span.name}</h3>
-              <p className="mt-1 text-xs text-slate-500">
+              <h3 className="mt-2 break-words font-semibold">{span.name}</h3>
+              <p
+                className="mt-1 truncate text-xs text-slate-500"
+                title={
+                  span.provider || span.model
+                    ? [span.provider, span.model].filter(Boolean).join(" · ")
+                    : span.id
+                }
+              >
                 {span.provider || span.model
                   ? [span.provider, span.model].filter(Boolean).join(" · ")
                   : span.id}
@@ -329,16 +353,16 @@ function SpanBranch({
                 }}
               />
             </div>
-            <div className="mt-2 flex justify-between text-xs text-slate-400">
+            <div className="mt-2 flex flex-col gap-1 text-xs text-slate-400 sm:flex-row sm:justify-between">
               <span>{formatTimestamp(span.startedAt)}</span>
-              <span>
+              <span className="sm:text-right">
                 {span.endedAt ? formatTimestamp(span.endedAt) : "In progress"}
               </span>
             </div>
           </div>
 
           {span.errorMessage || span.errorType ? (
-            <div className="mt-4 rounded-lg bg-red-50 p-3 text-sm text-red-800">
+            <div className="mt-4 break-words rounded-lg bg-red-50 p-3 text-sm text-red-800">
               <span className="font-semibold">
                 {span.errorType || "Error"}:
               </span>{" "}
@@ -415,7 +439,10 @@ function PrettyJson({ value }: { value: unknown }) {
       ? `${serialized.slice(0, 5000)}\n… truncated`
       : serialized;
   return (
-    <pre className="mt-3 max-h-72 overflow-auto whitespace-pre-wrap break-words rounded-lg bg-slate-950 p-4 font-mono text-xs leading-5 text-slate-100">
+    <pre
+      className="mt-3 max-h-72 overflow-auto whitespace-pre-wrap break-words rounded-lg bg-slate-950 p-4 font-mono text-xs leading-5 text-slate-100"
+      tabIndex={0}
+    >
       {display}
     </pre>
   );
@@ -423,11 +450,11 @@ function PrettyJson({ value }: { value: unknown }) {
 
 function MiniMetric({ label, value }: { label: string; value: string }) {
   return (
-    <div className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
+    <div className="min-w-0 rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
       <p className="text-xs font-semibold uppercase tracking-wider text-slate-400">
         {label}
       </p>
-      <p className="mt-2 font-semibold">{value}</p>
+      <p className="mt-2 truncate font-semibold" title={value}>{value}</p>
     </div>
   );
 }
@@ -454,7 +481,12 @@ function BackLink() {
 
 function TraceLoading() {
   return (
-    <div className="mx-auto max-w-7xl animate-pulse" aria-label="Loading trace">
+    <div
+      className="mx-auto max-w-7xl animate-pulse"
+      role="status"
+      aria-label="Loading trace"
+    >
+      <span className="sr-only">Loading trace…</span>
       <div className="h-5 w-28 rounded bg-slate-200" />
       <div className="mt-6 h-10 w-2/5 rounded bg-slate-200" />
       <div className="mt-8 h-28 rounded-2xl bg-slate-200" />

@@ -50,9 +50,10 @@ export function ObservabilityDashboard() {
     events: AlertEvent[];
     error: string;
   }>({ projectId: "", events: [], error: "" });
-  const [realtimeStatus, setRealtimeStatus] = useState<
-    "connecting" | "connected" | "reconnecting"
-  >("connecting");
+  const [realtimeState, setRealtimeState] = useState<{
+    projectId: string;
+    status: "connecting" | "connected" | "reconnecting";
+  }>({ projectId: "", status: "connecting" });
   const [refreshVersion, setRefreshVersion] = useState(0);
 
   const query = useMemo(() => {
@@ -83,8 +84,16 @@ export function ObservabilityDashboard() {
       `/api/projects/${selectedProject.id}/events`,
     );
     const refresh = () => setRefreshVersion((current) => current + 1);
-    source.onopen = () => setRealtimeStatus("connected");
-    source.onerror = () => setRealtimeStatus("reconnecting");
+    source.onopen = () =>
+      setRealtimeState({
+        projectId: selectedProject.id,
+        status: "connected",
+      });
+    source.onerror = () =>
+      setRealtimeState({
+        projectId: selectedProject.id,
+        status: "reconnecting",
+      });
     source.addEventListener("telemetry.ingested", refresh);
     source.addEventListener("alert.triggered", refresh);
 
@@ -217,6 +226,11 @@ export function ObservabilityDashboard() {
     alertState.projectId === selectedProject.id ? alertState.events : [];
   const alertError =
     alertState.projectId === selectedProject.id ? alertState.error : "";
+  const alertsLoading = alertState.projectId !== selectedProject.id;
+  const realtimeStatus =
+    realtimeState.projectId === selectedProject.id
+      ? realtimeState.status
+      : "connecting";
 
   function applyFilters(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -233,13 +247,33 @@ export function ObservabilityDashboard() {
     setPage(1);
   }
 
+  function retryMetrics() {
+    setMetricState({ projectId: "", metrics: null, error: "" });
+    setRefreshVersion((current) => current + 1);
+  }
+
+  function retryAlerts() {
+    setAlertState({ projectId: "", events: [], error: "" });
+    setRefreshVersion((current) => current + 1);
+  }
+
+  function retryRuns() {
+    setListState({ key: "", response: null, error: "" });
+    setRefreshVersion((current) => current + 1);
+  }
+
   return (
     <div className="mx-auto max-w-7xl">
       <DashboardHeading projectName={selectedProject.name} />
 
       {metricError ? (
-        <ErrorMessage message={metricError} />
-      ) : (
+        <div className="mt-8">
+          <ErrorMessage
+            message={metricError}
+            onRetry={retryMetrics}
+          />
+        </div>
+      ) : metrics ? (
         <section className="mt-8 grid gap-4 sm:grid-cols-2 xl:grid-cols-5">
           <MetricCard
             label="Total runs"
@@ -269,12 +303,16 @@ export function ObservabilityDashboard() {
             detail="Estimated telemetry cost"
           />
         </section>
+      ) : (
+        <MetricCardsLoading />
       )}
 
       <AlertEventsPanel
         events={alertEvents}
         error={alertError}
+        loading={alertsLoading}
         realtimeStatus={realtimeStatus}
+        onRetry={retryAlerts}
       />
 
       <section className="mt-8 overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">
@@ -296,76 +334,81 @@ export function ObservabilityDashboard() {
 
           <form
             onSubmit={applyFilters}
-            className="mt-5 grid gap-3 md:grid-cols-2 xl:grid-cols-[1fr_150px_160px_160px_auto]"
+            className="mt-5 grid gap-3 md:grid-cols-2 xl:grid-cols-[minmax(220px,1fr)_150px_160px_160px_auto]"
           >
-            <input
-              value={draftFilters.search}
-              onChange={(event) =>
-                setDraftFilters((current) => ({
-                  ...current,
-                  search: event.target.value,
-                }))
-              }
-              placeholder="Search run, agent, or trace ID"
-              aria-label="Search runs"
-              maxLength={200}
-              className="rounded-lg border border-slate-300 px-3.5 py-2.5 text-sm"
-            />
-            <select
-              value={draftFilters.status}
-              onChange={(event) =>
-                setDraftFilters((current) => ({
-                  ...current,
-                  status: event.target.value as Filters["status"],
-                }))
-              }
-              aria-label="Run status"
-              className="rounded-lg border border-slate-300 bg-white px-3.5 py-2.5 text-sm"
-            >
-              <option value="">All statuses</option>
-              <option value="success">Success</option>
-              <option value="failed">Failed</option>
-              <option value="running">Running</option>
-            </select>
-            <label className="sr-only" htmlFor="runs-from">
-              From date
+            <label className="text-xs font-semibold text-slate-600">
+              Search
+              <input
+                value={draftFilters.search}
+                onChange={(event) =>
+                  setDraftFilters((current) => ({
+                    ...current,
+                    search: event.target.value,
+                  }))
+                }
+                placeholder="Run, agent, or trace ID"
+                maxLength={200}
+                className="mt-1.5 block w-full min-w-0 rounded-lg border border-slate-300 px-3.5 py-2.5 text-sm font-normal"
+              />
             </label>
-            <input
-              id="runs-from"
-              type="date"
-              value={draftFilters.from}
-              onChange={(event) =>
-                setDraftFilters((current) => ({
-                  ...current,
-                  from: event.target.value,
-                }))
-              }
-              className="rounded-lg border border-slate-300 px-3.5 py-2.5 text-sm"
-            />
-            <label className="sr-only" htmlFor="runs-to">
-              To date
+            <label className="text-xs font-semibold text-slate-600">
+              Status
+              <select
+                value={draftFilters.status}
+                onChange={(event) =>
+                  setDraftFilters((current) => ({
+                    ...current,
+                    status: event.target.value as Filters["status"],
+                  }))
+                }
+                className="mt-1.5 block w-full rounded-lg border border-slate-300 bg-white px-3.5 py-2.5 text-sm font-normal"
+              >
+                <option value="">All statuses</option>
+                <option value="success">Success</option>
+                <option value="failed">Failed</option>
+                <option value="running">Running</option>
+              </select>
             </label>
-            <input
-              id="runs-to"
-              type="date"
-              value={draftFilters.to}
-              min={draftFilters.from || undefined}
-              onChange={(event) =>
-                setDraftFilters((current) => ({
-                  ...current,
-                  to: event.target.value,
-                }))
-              }
-              className="rounded-lg border border-slate-300 px-3.5 py-2.5 text-sm"
-            />
-            <div className="flex gap-2">
-              <button className="rounded-lg bg-indigo-600 px-4 py-2.5 text-sm font-semibold text-white hover:bg-indigo-700">
+            <label className="text-xs font-semibold text-slate-600" htmlFor="runs-from">
+              From
+              <input
+                id="runs-from"
+                type="date"
+                value={draftFilters.from}
+                onChange={(event) =>
+                  setDraftFilters((current) => ({
+                    ...current,
+                    from: event.target.value,
+                  }))
+                }
+                className="mt-1.5 block w-full rounded-lg border border-slate-300 px-3.5 py-2.5 text-sm font-normal"
+              />
+            </label>
+            <label className="text-xs font-semibold text-slate-600" htmlFor="runs-to">
+              To
+              <input
+                id="runs-to"
+                type="date"
+                value={draftFilters.to}
+                min={draftFilters.from || undefined}
+                onChange={(event) =>
+                  setDraftFilters((current) => ({
+                    ...current,
+                    to: event.target.value,
+                  }))
+                }
+                className="mt-1.5 block w-full rounded-lg border border-slate-300 px-3.5 py-2.5 text-sm font-normal"
+              />
+            </label>
+            <div className="flex items-end gap-2">
+              <button className="rounded-lg bg-indigo-600 px-4 py-2.5 text-sm font-semibold text-white transition hover:bg-indigo-700">
                 Apply
               </button>
               <button
                 type="button"
                 onClick={clearFilters}
-                className="rounded-lg border border-slate-300 px-3 py-2.5 text-sm font-semibold hover:bg-slate-50"
+                disabled={!hasFilters(draftFilters) && !hasFilters(filters)}
+                className="rounded-lg border border-slate-300 px-3 py-2.5 text-sm font-semibold transition hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-40"
               >
                 Clear
               </button>
@@ -375,7 +418,10 @@ export function ObservabilityDashboard() {
 
         {listError ? (
           <div className="p-6">
-            <ErrorMessage message={listError} />
+            <ErrorMessage
+              message={listError}
+              onRetry={retryRuns}
+            />
           </div>
         ) : !list ? (
           <TableLoading />
@@ -386,6 +432,13 @@ export function ObservabilityDashboard() {
               <p className="mt-2 text-sm text-slate-500">
                 Try clearing your filters.
               </p>
+              <button
+                type="button"
+                onClick={clearFilters}
+                className="mt-4 rounded-lg border border-slate-300 px-3.5 py-2 text-sm font-semibold transition hover:bg-slate-50"
+              >
+                Clear filters
+              </button>
             </div>
           ) : (
             <div className="p-5 sm:p-6">
@@ -394,7 +447,12 @@ export function ObservabilityDashboard() {
           )
         ) : (
           <>
-            <div className="overflow-x-auto">
+            <div
+              className="overflow-x-auto focus-visible:outline focus-visible:outline-3 focus-visible:outline-offset-[-3px] focus-visible:outline-indigo-200"
+              role="region"
+              aria-label="Runs table"
+              tabIndex={0}
+            >
               <table className="w-full min-w-[900px] text-left text-sm">
                 <thead className="bg-slate-50 text-xs uppercase tracking-wider text-slate-500">
                   <tr>
@@ -416,11 +474,15 @@ export function ObservabilityDashboard() {
                       <td className="px-6 py-4">
                         <Link
                           href={`/app/traces/${trace.id}`}
-                          className="font-semibold text-slate-900 hover:text-indigo-600"
+                          title={trace.name || trace.agentName}
+                          className="block max-w-sm truncate font-semibold text-slate-900 hover:text-indigo-600"
                         >
                           {trace.name || trace.agentName}
                         </Link>
-                        <p className="mt-1 text-xs text-slate-500">
+                        <p
+                          className="mt-1 max-w-sm truncate text-xs text-slate-500"
+                          title={`${trace.agentName} · ${trace.id}`}
+                        >
                           {trace.agentName} · {trace.id.slice(0, 8)}
                         </p>
                         {trace.errorMessage ? (
@@ -466,11 +528,15 @@ export function ObservabilityDashboard() {
 function AlertEventsPanel({
   events,
   error,
+  loading,
   realtimeStatus,
+  onRetry,
 }: {
   events: AlertEvent[];
   error: string;
+  loading: boolean;
   realtimeStatus: "connecting" | "connected" | "reconnecting";
+  onRetry: () => void;
 }) {
   return (
     <section className="mt-8 rounded-2xl border border-slate-200 bg-white shadow-sm">
@@ -482,24 +548,36 @@ function AlertEventsPanel({
           </p>
         </div>
         <span
+          role="status"
           className={`w-fit rounded-full px-2.5 py-1 text-xs font-semibold ${
             realtimeStatus === "connected"
               ? "bg-emerald-50 text-emerald-700"
-              : "bg-amber-50 text-amber-700"
+              : realtimeStatus === "reconnecting"
+                ? "bg-amber-50 text-amber-700"
+                : "bg-slate-100 text-slate-600"
           }`}
         >
-          {realtimeStatus === "connected" ? "Live" : "Reconnecting"}
+          {realtimeStatus === "connected"
+            ? "Live"
+            : realtimeStatus === "reconnecting"
+              ? "Reconnecting"
+              : "Connecting"}
         </span>
       </div>
 
       {error ? (
         <div className="p-6">
-          <ErrorMessage message={error} />
+          <ErrorMessage message={error} onRetry={onRetry} />
         </div>
+      ) : loading ? (
+        <PanelLoading label="Loading alerts" />
       ) : events.length === 0 ? (
-        <p className="p-8 text-center text-sm text-slate-500">
-          No alert rules have triggered for this project.
-        </p>
+        <div className="p-8 text-center">
+          <p className="font-medium text-slate-700">No triggered alerts</p>
+          <p className="mt-1 text-sm text-slate-500">
+            This project has no alert events in the current evaluation window.
+          </p>
+        </div>
       ) : (
         <div className="divide-y divide-slate-200">
           {events.slice(0, 8).map((event) => (
@@ -507,7 +585,7 @@ function AlertEventsPanel({
               key={event.id}
               className="grid gap-3 p-5 sm:grid-cols-[1fr_auto] sm:items-center sm:p-6"
             >
-              <div>
+              <div className="min-w-0">
                 <div className="flex flex-wrap items-center gap-2">
                   <span className="rounded-md bg-red-50 px-2 py-1 text-xs font-semibold text-red-700">
                     {event.ruleType.replace("_", " ")}
@@ -518,7 +596,7 @@ function AlertEventsPanel({
                 </div>
                 <Link
                   href={`/app/traces/${event.traceId}`}
-                  className="mt-2 block font-semibold hover:text-indigo-600"
+                  className="mt-2 block break-words font-semibold hover:text-indigo-600"
                 >
                   {event.ruleName}
                 </Link>
@@ -528,8 +606,10 @@ function AlertEventsPanel({
                   threshold {formatAlertValue(event.ruleType, event.threshold)}
                 </p>
               </div>
-              <span className="w-fit rounded-full bg-slate-100 px-2.5 py-1 text-xs font-medium text-slate-600">
-                Webhook: {event.deliveryStatus.replace("_", " ")}
+              <span
+                className={`w-fit rounded-full px-2.5 py-1 text-xs font-medium ${deliveryStatusStyles(event.deliveryStatus)}`}
+              >
+                Webhook: {event.deliveryStatus.replaceAll("_", " ")}
               </span>
             </article>
           ))}
@@ -537,6 +617,13 @@ function AlertEventsPanel({
       )}
     </section>
   );
+}
+
+function deliveryStatusStyles(status: AlertEvent["deliveryStatus"]) {
+  if (status === "delivered") return "bg-emerald-50 text-emerald-700";
+  if (status === "failed") return "bg-red-50 text-red-700";
+  if (status === "pending") return "bg-amber-50 text-amber-700";
+  return "bg-slate-100 text-slate-600";
 }
 
 function formatAlertValue(type: AlertEvent["ruleType"], value: string) {
@@ -599,8 +686,11 @@ function Pagination({
   onPage: (page: number) => void;
 }) {
   return (
-    <div className="flex items-center justify-between border-t border-slate-200 px-6 py-4">
-      <p className="text-sm text-slate-500">
+    <nav
+      aria-label="Runs pagination"
+      className="flex flex-col gap-3 border-t border-slate-200 px-5 py-4 sm:flex-row sm:items-center sm:justify-between sm:px-6"
+    >
+      <p className="text-sm text-slate-500" aria-live="polite">
         Page {page} of {Math.max(totalPages, 1)}
       </p>
       <div className="flex gap-2">
@@ -608,7 +698,8 @@ function Pagination({
           type="button"
           disabled={!previous}
           onClick={() => onPage(page - 1)}
-          className="rounded-lg border border-slate-300 px-3 py-2 text-sm font-semibold disabled:cursor-not-allowed disabled:opacity-40"
+          aria-label={`Go to page ${page - 1}`}
+          className="rounded-lg border border-slate-300 px-3 py-2 text-sm font-semibold transition hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-40"
         >
           Previous
         </button>
@@ -616,18 +707,25 @@ function Pagination({
           type="button"
           disabled={!next}
           onClick={() => onPage(page + 1)}
-          className="rounded-lg border border-slate-300 px-3 py-2 text-sm font-semibold disabled:cursor-not-allowed disabled:opacity-40"
+          aria-label={`Go to page ${page + 1}`}
+          className="rounded-lg border border-slate-300 px-3 py-2 text-sm font-semibold transition hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-40"
         >
           Next
         </button>
       </div>
-    </div>
+    </nav>
   );
 }
 
 function TableLoading() {
   return (
-    <div className="space-y-3 p-6" aria-label="Loading runs">
+    <div
+      className="space-y-3 p-6"
+      role="status"
+      aria-label="Loading runs"
+      aria-live="polite"
+    >
+      <span className="sr-only">Loading runs…</span>
       {[0, 1, 2].map((index) => (
         <div
           key={index}
@@ -638,14 +736,62 @@ function TableLoading() {
   );
 }
 
-function ErrorMessage({ message }: { message: string }) {
+function MetricCardsLoading() {
   return (
-    <p
-      role="alert"
-      className="rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700"
+    <section
+      className="mt-8 grid gap-4 sm:grid-cols-2 xl:grid-cols-5"
+      role="status"
+      aria-label="Loading metrics"
     >
-      {message}
-    </p>
+      <span className="sr-only">Loading metrics…</span>
+      {[0, 1, 2, 3, 4].map((index) => (
+        <div
+          key={index}
+          className="h-32 animate-pulse rounded-2xl border border-slate-200 bg-white p-5 shadow-sm"
+        >
+          <div className="h-3 w-20 rounded bg-slate-200" />
+          <div className="mt-4 h-7 w-28 rounded bg-slate-200" />
+          <div className="mt-3 h-3 w-32 rounded bg-slate-100" />
+        </div>
+      ))}
+    </section>
+  );
+}
+
+function PanelLoading({ label }: { label: string }) {
+  return (
+    <div className="space-y-3 p-6" role="status" aria-label={label}>
+      <span className="sr-only">{label}…</span>
+      {[0, 1].map((index) => (
+        <div key={index} className="h-16 animate-pulse rounded-lg bg-slate-100" />
+      ))}
+    </div>
+  );
+}
+
+function ErrorMessage({
+  message,
+  onRetry,
+}: {
+  message: string;
+  onRetry?: () => void;
+}) {
+  return (
+    <div
+      role="alert"
+      className="flex flex-col gap-3 rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700 sm:flex-row sm:items-center sm:justify-between"
+    >
+      <p className="break-words">{message}</p>
+      {onRetry ? (
+        <button
+          type="button"
+          onClick={onRetry}
+          className="w-fit shrink-0 rounded-lg border border-red-300 bg-white px-3 py-1.5 font-semibold text-red-800 transition hover:bg-red-100"
+        >
+          Try again
+        </button>
+      ) : null}
+    </div>
   );
 }
 
