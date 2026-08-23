@@ -167,6 +167,27 @@ describe('Alert rules and tenant authorization (e2e)', () => {
       .expect(400);
   });
 
+  it('accepts the smallest supported eight-decimal threshold', async () => {
+    const created = await request(app.getHttpServer())
+      .post(`/projects/${firstProjectId}/alert-rules`)
+      .set('Authorization', `Bearer ${firstAccessToken}`)
+      .send({ name: 'Small cost', type: 'cost', threshold: 0.00000001 })
+      .expect(201);
+
+    expect((created.body as AlertRuleResponse).threshold).toBe('1e-8');
+
+    await request(app.getHttpServer())
+      .post(`/projects/${firstProjectId}/alert-rules`)
+      .set('Authorization', `Bearer ${firstAccessToken}`)
+      .send({ name: 'Too precise', type: 'cost', threshold: 0.000000001 })
+      .expect(400);
+
+    await request(app.getHttpServer())
+      .delete(`/alert-rules/${(created.body as AlertRuleResponse).id}`)
+      .set('Authorization', `Bearer ${firstAccessToken}`)
+      .expect(204);
+  });
+
   it('allows a member to create, list, and get an alert rule', async () => {
     const creation = await request(app.getHttpServer())
       .post(`/projects/${firstProjectId}/alert-rules`)

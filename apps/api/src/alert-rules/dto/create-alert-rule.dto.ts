@@ -22,7 +22,7 @@ export class CreateAlertRuleDto {
   @IsIn([...ALERT_RULE_TYPES])
   type!: AlertRuleType;
 
-  @IsNumber({ allowInfinity: false, allowNaN: false, maxDecimalPlaces: 8 })
+  @IsNumber({ allowInfinity: false, allowNaN: false })
   @IsPositive()
   threshold!: number;
 }
