@@ -123,11 +123,11 @@ pnpm --filter api test:e2e -- --runInBand
 
 ## Deployment
 
-AgentPulse supports ordinary Node.js services or the included production
-Dockerfiles and PostgreSQL 18 Compose stack. Deploy migrations with
-`prisma migrate deploy`, configure exact production CORS origins, terminate TLS
-in front of the public services, and keep all credentials in a secret manager.
+AgentPulse supports ordinary Node.js services or the included single-host
+Docker Compose stack with Caddy TLS, private application networks, PostgreSQL
+18, health-gated startup, and a one-shot `prisma migrate deploy` release step.
+Keep all credentials in an ignored deployment env file or a secret manager.
 
 See [deployment.md](docs/deployment.md) for managed-platform and self-hosted
-instructions. A live deployment still requires an external hosting account,
-domains/TLS, a PostgreSQL instance, and deployment secrets.
+instructions. A live deployment still requires a Linux host, two DNS records,
+deployment secrets, and production backup/operations ownership.

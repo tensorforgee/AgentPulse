@@ -1,22 +1,40 @@
 # AgentPulse V1 Deployment
 
 AgentPulse can run on any platform that provides two Node.js services and
-PostgreSQL 18. The repository also includes a Docker Compose path for a small
-self-hosted deployment. Redis, background workers, and other Step 15 systems are
-not required.
+PostgreSQL 18. The repository includes a complete single-host Docker Compose
+deployment with Caddy terminating TLS. Redis and a separate queue service are
+not required for the current single-process V1.
 
 ## Production topology
 
 ```text
-Browser -> Next.js web -> NestJS API -> PostgreSQL 18
-External agent -> @agentpulse/sdk -> NestJS API
+Browser -> Caddy (HTTPS) -> Next.js web -> NestJS API -> PostgreSQL 18
+External agent -> Caddy (HTTPS) -> NestJS API
 ```
 
-The Next.js server uses `AGENTPULSE_API_URL` privately. The SDK needs the public
-HTTPS API origin. Put TLS and a reverse proxy/load balancer in front of both
-public services.
+The Next.js server uses `AGENTPULSE_API_URL` over the private Compose network.
+The SDK uses the public HTTPS API origin. Only Caddy publishes host ports;
+web, API, and PostgreSQL remain private to their required Docker networks. Web
+production builds use a local system-font stack and do not depend on a build-
+time connection to Google Fonts.
 
 ## Environment variables
+
+### Compose host and PostgreSQL
+
+| Variable | Required | Purpose |
+| --- | --- | --- |
+| `WEB_DOMAIN` | Yes | Public web hostname without a scheme, for example `app.agentpulse.example.com`. |
+| `API_DOMAIN` | Yes | Public SDK/API hostname without a scheme, for example `api.agentpulse.example.com`. |
+| `POSTGRES_DB` | Yes | Database created by the PostgreSQL container. |
+| `POSTGRES_USER` | Yes | Dedicated PostgreSQL application user. |
+| `POSTGRES_PASSWORD` | Yes | Long, URL-safe database password used only in the ignored deploy env file. |
+| `DATABASE_URL` | Yes | Private `postgres:5432` URL using the same database/user/password values. |
+
+The Compose file derives `CORS_ORIGINS` from `WEB_DOMAIN`, uses
+`AGENTPULSE_API_URL=http://api:5000` only inside Docker, and defaults
+`TRUST_PROXY_HOPS` to the single Caddy hop. This prevents the public domain,
+CORS origin, and internal routing configuration from drifting independently.
 
 ### API
 
@@ -108,34 +126,76 @@ connections. Do not set a broad trust value: client IPs feed the authentication
 and invalid-API-key rate-limit buckets. Configure the proxy to replace, rather
 than append untrusted client-supplied forwarding headers.
 
-## Docker Compose deployment
+## Recommended Docker Compose deployment
 
 Docker Compose 2.20 or newer is required for the health and completion
-conditions used by the stack.
+conditions used by the stack. Use one Linux VM with a public IPv4 address, at
+least 2 GiB RAM, persistent storage, and inbound TCP 80/443 plus UDP 443. Point
+an A record for `WEB_DOMAIN` and `API_DOMAIN` directly at that host before
+starting the stack. Add AAAA records only when IPv6 routing and the host firewall
+are configured. Caddy then obtains and renews TLS certificates and redirects
+HTTP to HTTPS automatically.
 
-```powershell
-Copy-Item deploy/.env.example deploy/.env
+From a clean host:
+
+1. Install supported Docker Engine and Docker Compose releases, then enable the
+   Docker service at boot.
+2. Allow inbound TCP 80/443 and UDP 443; keep every other application/database
+   port closed.
+3. Clone AgentPulse at the reviewed release revision and enter the repository.
+4. Copy the example below, replace every placeholder, and restrict the resulting
+   file to the deployment account.
+5. Start the stack and wait for the migration, API, and web health gates.
+
+```sh
+cp deploy/.env.example deploy/.env
 # Replace every placeholder in deploy/.env with deployment-specific values.
+chmod 600 deploy/.env
+docker compose --env-file deploy/.env -f deploy/compose.production.yml config --quiet
+docker compose --env-file deploy/.env -f deploy/compose.production.yml run --rm --no-deps caddy validate --config /etc/caddy/Caddyfile
 docker compose --env-file deploy/.env -f deploy/compose.production.yml up --build -d
 ```
 
 The Compose stack:
 
+- makes Caddy the only public service and provisions TLS for both domains;
 - runs PostgreSQL 18 on a named volume without publishing its port;
 - runs `prisma migrate deploy` after PostgreSQL becomes healthy;
 - starts the API only after the migration job succeeds;
-- starts the web service only after the API readiness check passes.
+- starts the web service only after the API readiness check passes;
+- starts Caddy only after both application services pass their health checks;
+- preserves SSE delivery because Caddy flushes `text/event-stream` responses
+  immediately.
 
 `deploy/.env` is ignored by Git. Use a URL-safe database password in this
 example so the same value can appear in `POSTGRES_PASSWORD` and `DATABASE_URL`.
-For an existing managed database, remove the Compose `postgres` service and set
-`DATABASE_URL` to the provider connection string instead.
+Do not expose that file or copy it into an image. For an existing managed
+database, remove the Compose `postgres` service, its dependency/volume, and set
+`DATABASE_URL` to the provider's private TLS connection string.
 
-Production operators must additionally configure HTTPS, a reverse proxy,
-database backups, monitoring, log retention, and platform-level request/rate
-limits. Preserve `text/event-stream` responses for project realtime updates by
-disabling proxy buffering and setting an appropriate idle timeout on the SSE
-route. Do not expose PostgreSQL publicly.
+The included topology is direct client -> Caddy -> API, so
+`TRUST_PROXY_HOPS=1` is required for correct per-client rate-limit identity.
+Caddy replaces untrusted forwarding information before proxying. If a CDN or
+load balancer is added later, configure its trusted proxy ranges in Caddy and
+recalculate the exact API hop count; do not increase this value speculatively.
+
+After startup, verify the release before creating user data:
+
+```sh
+docker compose --env-file deploy/.env -f deploy/compose.production.yml ps --all
+docker compose --env-file deploy/.env -f deploy/compose.production.yml logs migrate
+curl --fail --silent --show-error https://api.your-domain.example/health/live
+curl --fail --silent --show-error https://api.your-domain.example/health/ready
+```
+
+The `migrate` container must show a successful `prisma migrate deploy` before
+the API becomes healthy. A failed migration prevents the API revision from
+starting. Back up the database before future destructive migrations, and never
+run `prisma migrate dev` or `db push` in production.
+
+Still configure host backups for the `postgres_data` volume, off-host backup
+retention, OS/container security updates, log retention, and provider-level
+firewall rules. Do not expose PostgreSQL publicly.
 
 ## Production verification
 
