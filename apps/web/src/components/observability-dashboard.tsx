@@ -2,6 +2,7 @@
 
 import Link from "next/link";
 import { FormEvent, useEffect, useMemo, useState } from "react";
+import { FirstTraceGuide } from "@/components/first-trace-guide";
 import { useWorkspace } from "@/components/workspace-context";
 import { StatusBadge } from "@/components/status-badge";
 import { requestJson } from "@/lib/client-api";
@@ -379,14 +380,18 @@ export function ObservabilityDashboard() {
         ) : !list ? (
           <TableLoading />
         ) : list.data.length === 0 ? (
-          <div className="p-12 text-center">
-            <h3 className="font-semibold">No runs found</h3>
-            <p className="mt-2 text-sm text-slate-500">
-              {hasFilters(filters)
-                ? "Try clearing your filters."
-                : "Send telemetry with the AgentPulse SDK to see it here."}
-            </p>
-          </div>
+          hasFilters(filters) ? (
+            <div className="p-12 text-center">
+              <h3 className="font-semibold">No runs found</h3>
+              <p className="mt-2 text-sm text-slate-500">
+                Try clearing your filters.
+              </p>
+            </div>
+          ) : (
+            <div className="p-5 sm:p-6">
+              <FirstTraceGuide projectName={selectedProject.name} />
+            </div>
+          )
         ) : (
           <>
             <div className="overflow-x-auto">
