@@ -1,6 +1,7 @@
 "use client";
 
 import { FormEvent, useState } from "react";
+import { FirstTraceGuide } from "@/components/first-trace-guide";
 import { useWorkspace } from "@/components/workspace-context";
 
 function slugify(value: string) {
@@ -19,6 +20,7 @@ export default function WorkspacePage() {
   const [projectSlug, setProjectSlug] = useState("");
   const [projectDescription, setProjectDescription] = useState("");
   const [formError, setFormError] = useState("");
+  const [showProjectOnboarding, setShowProjectOnboarding] = useState(false);
   const [submitting, setSubmitting] = useState<"organization" | "project" | null>(
     null,
   );
@@ -54,6 +56,7 @@ export default function WorkspacePage() {
       setProjectName("");
       setProjectSlug("");
       setProjectDescription("");
+      setShowProjectOnboarding(true);
     } catch (caught) {
       setFormError(caught instanceof Error ? caught.message : "Creation failed");
     } finally {
@@ -187,6 +190,12 @@ export default function WorkspacePage() {
           </form>
         </SetupCard>
       </section>
+
+      {showProjectOnboarding && workspace.selectedProject ? (
+        <div className="mt-8">
+          <FirstTraceGuide projectName={workspace.selectedProject.name} />
+        </div>
+      ) : null}
     </div>
   );
 }

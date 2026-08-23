@@ -1,6 +1,8 @@
 "use client";
 
 import { FormEvent, useEffect, useState } from "react";
+import { CopyButton } from "@/components/copy-button";
+import { FirstTraceGuide } from "@/components/first-trace-guide";
 import { useWorkspace } from "@/components/workspace-context";
 import { requestJson } from "@/lib/client-api";
 import type { ApiKeyMetadata, CreatedApiKey } from "@/lib/types";
@@ -145,20 +147,24 @@ export default function ApiKeysPage() {
                 <div>
                   <h2 className="font-semibold text-amber-950">Copy this key now</h2>
                   <p className="mt-1 text-sm text-amber-800">
-                    You will not be able to view it again.
+                    This is the only time the raw key is shown. Store it in a
+                    password manager or secret manager before continuing.
                   </p>
                 </div>
-                <button
-                  type="button"
-                  onClick={() => void navigator.clipboard.writeText(createdKey)}
+                <CopyButton
+                  value={createdKey}
+                  label="Copy key"
+                  copiedLabel="Key copied"
                   className="rounded-lg border border-amber-400 bg-white px-3 py-2 text-sm font-semibold text-amber-950"
-                >
-                  Copy key
-                </button>
+                />
               </div>
               <code className="mt-4 block overflow-x-auto rounded-lg bg-amber-950 p-3 text-sm text-amber-50">
                 {createdKey}
               </code>
+              <p className="mt-3 text-xs leading-5 text-amber-800">
+                AgentPulse stores only a digest and a non-secret display prefix.
+                Stored key hashes are never returned to this UI.
+              </p>
               <button
                 type="button"
                 onClick={() => setCreatedKey("")}
@@ -227,6 +233,10 @@ export default function ApiKeysPage() {
               </div>
             )}
           </section>
+
+          <div className="mt-6">
+            <FirstTraceGuide projectName={selectedProject.name} />
+          </div>
         </>
       )}
     </div>
