@@ -1,10 +1,17 @@
-# AgentPulse Month 1 Database Schema
+# AgentPulse Month 1 Database Design
+
+> **Historical design reference:** this document records the original Month 1
+> persistence plan. The implemented Prisma schema and migrations under
+> [`apps/api/prisma/`](../apps/api/prisma/) are the source of truth. Later work
+> added authentication refresh-token fields, alert rules, alert events, and
+> query indexes that are not fully represented below. Do not use this document
+> as migration instructions.
 
 ## Scope
 
-This document defines the PostgreSQL schema planned for the AgentPulse Month 1
-database foundation. It is a design specification only: it does not create
-tables and is not a Prisma schema.
+This document defines the original PostgreSQL schema planned for the
+AgentPulse Month 1 database foundation. It is a design specification only: it
+does not create tables and is not a Prisma schema.
 
 The Month 1 schema contains these seven core tables:
 
