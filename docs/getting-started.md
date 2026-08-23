@@ -318,22 +318,23 @@ web application. They are not presented as a public client API.
 
 ## Run the repository examples
 
-With `AGENTPULSE_API_KEY` and `AGENTPULSE_BASE_URL` set, emit the deterministic
-success/failure demo:
-
-```powershell
-pnpm demo
-```
-
-Run the more realistic support RAG workflow:
+With `AGENTPULSE_API_KEY` and `AGENTPULSE_BASE_URL` set, run the realistic
+support-RAG workflow used by the [reviewer demo](demo.md):
 
 ```powershell
 pnpm --filter @agentpulse/support-rag-agent-example start
 pnpm --filter @agentpulse/support-rag-agent-example start -- --simulate-failure
 ```
 
-Both examples use synthetic local data, print trace IDs and span counts, and do
-not print the API key.
+For a smaller deterministic SDK regression workload that emits both outcomes
+in one command, run:
+
+```powershell
+pnpm demo
+```
+
+Both examples use synthetic local data, print trace IDs and span counts, and
+do not print the API key or call an external AI provider.
 
 ## Troubleshooting
 

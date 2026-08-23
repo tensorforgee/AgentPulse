@@ -8,12 +8,13 @@ project.
 
 ## Start here
 
+- **Reviewer or interviewer:** run the repeatable
+  [support-RAG product demo](docs/demo.md) and inspect both a successful and a
+  failed agent execution.
 - **New developer:** follow [Getting started](docs/getting-started.md) to run
   AgentPulse locally, create a project key, and send a first trace.
-- **Instrumentation example:** run the realistic, deterministic
-  [support RAG agent](examples/support-rag-agent/README.md).
-- **End-to-end review:** use the [reviewer demo](docs/demo.md) to emit one
-  successful and one failed trace.
+- **Example source:** read the realistic, deterministic
+  [support-RAG agent](examples/support-rag-agent/README.md).
 - **Production:** use the [deployment guide](docs/deployment.md) for managed
   services or the included Docker Compose stack.
 
@@ -37,6 +38,43 @@ worker service.
 See [Architecture](docs/architecture.md) for the implemented components and
 data flows. The Prisma schema and migrations under `apps/api/prisma/` are the
 source of truth for persistence.
+
+## Implemented product surface
+
+- Project-scoped ingestion keys with one-time plaintext visibility, digest
+  storage, expiry support, usage tracking, and revocation.
+- A manual TypeScript SDK for nested agent, retrieval, tool, LLM, and custom
+  spans with status, timing, tokens, estimated cost, input/output, and errors.
+- Validated, transactional `POST /v1/ingest` persistence with tenant isolation
+  and idempotent trace/span upserts.
+- A responsive runs dashboard with aggregate metrics, filters, pagination,
+  realtime refresh, and nested trace/span timelines.
+- Failed-trace root-cause analysis from captured operational evidence, with a
+  local fallback and an optional OpenAI-compatible provider.
+- Error-rate, latency, and cost alert-rule APIs, persisted alert events in the
+  dashboard, and optional HTTPS webhook delivery.
+
+The bundled support-RAG example uses synthetic local data and deterministic
+timings, token counts, and estimated costs. It demonstrates observability
+without claiming production traffic or calling a paid AI provider.
+
+## Five-minute product demo
+
+After completing local setup and creating a project key, run both support-RAG
+paths from the repository root:
+
+```powershell
+$env:AGENTPULSE_API_KEY = "<your-project-api-key>"
+$env:AGENTPULSE_BASE_URL = "http://127.0.0.1:5000"
+pnpm --filter @agentpulse/support-rag-agent-example start
+pnpm --filter @agentpulse/support-rag-agent-example start -- --simulate-failure
+```
+
+Then open **Runs** to compare the successful retrieval/tool/LLM trace with the
+failed tool trace, inspect their span trees and telemetry, and run the
+evidence-based RCA on the failure. The complete
+[reviewer walkthrough](docs/demo.md) lists the exact expected evidence and an
+optional alert-rule demonstration.
 
 ## Repository
 
