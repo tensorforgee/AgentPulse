@@ -12,11 +12,20 @@ export default function ApiKeysPage() {
   const [keyResult, setKeyResult] = useState<{
     projectId: string;
     keys: ApiKeyMetadata[];
-  }>({ projectId: "", keys: [] });
-  const [createdKey, setCreatedKey] = useState("");
+    error: string;
+  }>({ projectId: "", keys: [], error: "" });
+  const [createdKeyResult, setCreatedKeyResult] = useState({
+    projectId: "",
+    value: "",
+  });
   const [name, setName] = useState("");
   const [submitting, setSubmitting] = useState(false);
-  const [error, setError] = useState("");
+  const [revokingKeyId, setRevokingKeyId] = useState("");
+  const [loadVersion, setLoadVersion] = useState(0);
+  const [errorState, setErrorState] = useState({
+    projectId: "",
+    message: "",
+  });
 
   useEffect(() => {
     if (!selectedProject) return;
@@ -27,13 +36,17 @@ export default function ApiKeysPage() {
     ).then(
       (keys) => {
         if (active) {
-          setKeyResult({ projectId: selectedProject.id, keys });
-          setError("");
+          setKeyResult({ projectId: selectedProject.id, keys, error: "" });
         }
       },
       (caught: unknown) => {
         if (active) {
-          setError(caught instanceof Error ? caught.message : "Could not load keys");
+          setKeyResult({
+            projectId: selectedProject.id,
+            keys: [],
+            error:
+              caught instanceof Error ? caught.message : "Could not load keys",
+          });
         }
       },
     );
@@ -41,7 +54,7 @@ export default function ApiKeysPage() {
     return () => {
       active = false;
     };
-  }, [selectedProject]);
+  }, [loadVersion, selectedProject]);
 
   const keys =
     selectedProject && keyResult.projectId === selectedProject.id
@@ -49,22 +62,35 @@ export default function ApiKeysPage() {
       : [];
   const loading =
     Boolean(selectedProject) && keyResult.projectId !== selectedProject?.id;
+  const loadError =
+    selectedProject && keyResult.projectId === selectedProject.id
+      ? keyResult.error
+      : "";
+  const createdKey =
+    selectedProject && createdKeyResult.projectId === selectedProject.id
+      ? createdKeyResult.value
+      : "";
+  const error =
+    selectedProject && errorState.projectId === selectedProject.id
+      ? errorState.message
+      : "";
 
   async function createKey(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     if (!selectedProject) return;
     setSubmitting(true);
-    setError("");
-    setCreatedKey("");
+    setErrorState({ projectId: selectedProject.id, message: "" });
+    setCreatedKeyResult({ projectId: selectedProject.id, value: "" });
     try {
       const created = await requestJson<CreatedApiKey>(
         `/api/projects/${selectedProject.id}/api-keys`,
         { method: "POST", body: JSON.stringify({ name }) },
       );
       const { key, ...metadata } = created;
-      setCreatedKey(key);
+      setCreatedKeyResult({ projectId: selectedProject.id, value: key });
       setKeyResult((current) => ({
         projectId: selectedProject.id,
+        error: "",
         keys: [
           metadata,
           ...(current.projectId === selectedProject.id ? current.keys : []),
@@ -72,7 +98,11 @@ export default function ApiKeysPage() {
       }));
       setName("");
     } catch (caught) {
-      setError(caught instanceof Error ? caught.message : "Could not create key");
+      setErrorState({
+        projectId: selectedProject.id,
+        message:
+          caught instanceof Error ? caught.message : "Could not create key",
+      });
     } finally {
       setSubmitting(false);
     }
@@ -80,7 +110,8 @@ export default function ApiKeysPage() {
 
   async function revokeKey(apiKeyId: string) {
     if (!selectedProject) return;
-    setError("");
+    setErrorState({ projectId: selectedProject.id, message: "" });
+    setRevokingKeyId(apiKeyId);
     try {
       const revoked = await requestJson<ApiKeyMetadata>(
         `/api/projects/${selectedProject.id}/api-keys/${apiKeyId}/revoke`,
@@ -91,7 +122,13 @@ export default function ApiKeysPage() {
         keys: current.keys.map((key) => (key.id === revoked.id ? revoked : key)),
       }));
     } catch (caught) {
-      setError(caught instanceof Error ? caught.message : "Could not revoke key");
+      setErrorState({
+        projectId: selectedProject.id,
+        message:
+          caught instanceof Error ? caught.message : "Could not revoke key",
+      });
+    } finally {
+      setRevokingKeyId("");
     }
   }
 
@@ -121,6 +158,7 @@ export default function ApiKeysPage() {
             </h2>
             <form
               onSubmit={createKey}
+              aria-busy={submitting}
               className="mt-5 flex flex-col gap-3 sm:flex-row"
             >
               <input
@@ -133,8 +171,9 @@ export default function ApiKeysPage() {
                 className="min-w-0 flex-1 rounded-lg border border-slate-300 px-3.5 py-2.5"
               />
               <button
+                type="submit"
                 disabled={submitting}
-                className="rounded-lg bg-indigo-600 px-4 py-2.5 text-sm font-semibold text-white hover:bg-indigo-700 disabled:opacity-60"
+                className="rounded-lg bg-indigo-600 px-4 py-2.5 text-sm font-semibold text-white transition hover:bg-indigo-700 disabled:cursor-wait disabled:opacity-60"
               >
                 {submitting ? "Creating…" : "Create API key"}
               </button>
@@ -158,7 +197,7 @@ export default function ApiKeysPage() {
                   className="rounded-lg border border-amber-400 bg-white px-3 py-2 text-sm font-semibold text-amber-950"
                 />
               </div>
-              <code className="mt-4 block overflow-x-auto rounded-lg bg-amber-950 p-3 text-sm text-amber-50">
+              <code className="mt-4 block break-all rounded-lg bg-amber-950 p-3 text-sm text-amber-50">
                 {createdKey}
               </code>
               <p className="mt-3 text-xs leading-5 text-amber-800">
@@ -167,7 +206,12 @@ export default function ApiKeysPage() {
               </p>
               <button
                 type="button"
-                onClick={() => setCreatedKey("")}
+                onClick={() =>
+                  setCreatedKeyResult({
+                    projectId: selectedProject.id,
+                    value: "",
+                  })
+                }
                 className="mt-3 text-sm font-semibold text-amber-900 underline"
               >
                 I have saved it
@@ -189,7 +233,26 @@ export default function ApiKeysPage() {
               <h2 className="font-semibold">Project keys</h2>
             </div>
             {loading ? (
-              <p className="p-6 text-sm text-slate-500">Loading keys…</p>
+              <ApiKeysLoading />
+            ) : loadError ? (
+              <div className="p-6">
+                <div
+                  role="alert"
+                  className="flex flex-col gap-3 rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700 sm:flex-row sm:items-center sm:justify-between"
+                >
+                  <p className="break-words">{loadError}</p>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setKeyResult({ projectId: "", keys: [], error: "" });
+                      setLoadVersion((current) => current + 1);
+                    }}
+                    className="w-fit shrink-0 rounded-lg border border-red-300 bg-white px-3 py-1.5 font-semibold text-red-800 transition hover:bg-red-100"
+                  >
+                    Try again
+                  </button>
+                </div>
+              </div>
             ) : keys.length === 0 ? (
               <div className="p-10 text-center">
                 <p className="font-medium">No API keys yet</p>
@@ -206,7 +269,9 @@ export default function ApiKeysPage() {
                   >
                     <div className="min-w-0">
                       <div className="flex items-center gap-2">
-                        <h3 className="truncate font-semibold">{key.name}</h3>
+                        <h3 className="truncate font-semibold" title={key.name}>
+                          {key.name}
+                        </h3>
                         <KeyStatus apiKey={key} />
                       </div>
                       <p className="mt-1 font-mono text-sm text-slate-500">
@@ -223,9 +288,11 @@ export default function ApiKeysPage() {
                       <button
                         type="button"
                         onClick={() => void revokeKey(key.id)}
-                        className="self-start rounded-lg border border-red-200 px-3 py-2 text-sm font-semibold text-red-700 hover:bg-red-50"
+                        disabled={Boolean(revokingKeyId)}
+                        aria-busy={revokingKeyId === key.id}
+                        className="self-start rounded-lg border border-red-200 px-3 py-2 text-sm font-semibold text-red-700 transition hover:bg-red-50 disabled:cursor-wait disabled:opacity-50"
                       >
-                        Revoke
+                        {revokingKeyId === key.id ? "Revoking…" : "Revoke"}
                       </button>
                     ) : null}
                   </article>
@@ -239,6 +306,17 @@ export default function ApiKeysPage() {
           </div>
         </>
       )}
+    </div>
+  );
+}
+
+function ApiKeysLoading() {
+  return (
+    <div className="space-y-3 p-6" role="status" aria-label="Loading API keys">
+      <span className="sr-only">Loading API keys…</span>
+      {[0, 1].map((index) => (
+        <div key={index} className="h-16 animate-pulse rounded-lg bg-slate-100" />
+      ))}
     </div>
   );
 }

@@ -110,12 +110,12 @@ export default function WorkspacePage() {
         />
       </section>
 
-      {(workspace.error || formError) && (
+      {formError && (
         <p
           role="alert"
           className="mt-6 rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700"
         >
-          {formError || workspace.error}
+          {formError}
         </p>
       )}
 
@@ -141,6 +141,7 @@ export default function WorkspacePage() {
               pattern="[a-z0-9]+(?:-[a-z0-9]+)*"
             />
             <button
+              type="submit"
               disabled={submitting !== null}
               className="rounded-lg bg-indigo-600 px-4 py-2.5 text-sm font-semibold text-white hover:bg-indigo-700 disabled:opacity-60"
             >
@@ -182,6 +183,7 @@ export default function WorkspacePage() {
               disabled={!workspace.selectedOrganization}
             />
             <button
+              type="submit"
               disabled={submitting !== null || !workspace.selectedOrganization}
               className="rounded-lg bg-indigo-600 px-4 py-2.5 text-sm font-semibold text-white hover:bg-indigo-700 disabled:cursor-not-allowed disabled:opacity-60"
             >
@@ -215,7 +217,7 @@ function SummaryCard({
         {label}
       </p>
       <p className="mt-3 text-3xl font-semibold capitalize tracking-tight">{value}</p>
-      <p className="mt-2 truncate text-sm text-slate-500">{detail}</p>
+      <p className="mt-2 break-words text-sm text-slate-500">{detail}</p>
     </article>
   );
 }

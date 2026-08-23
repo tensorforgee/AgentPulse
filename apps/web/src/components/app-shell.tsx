@@ -18,7 +18,7 @@ export function AppShell({ children }: { children: ReactNode }) {
   if (workspace.loading) {
     return (
       <main className="grid min-h-screen place-items-center">
-        <div className="text-center">
+        <div className="text-center" role="status" aria-live="polite">
           <div className="mx-auto h-9 w-9 animate-spin rounded-full border-4 border-indigo-100 border-t-indigo-600" />
           <p className="mt-4 text-sm text-slate-500">Loading your workspace…</p>
         </div>
@@ -39,7 +39,10 @@ export function AppShell({ children }: { children: ReactNode }) {
             V1
           </span>
         </div>
-        <nav className="mt-5 flex gap-2 lg:mt-10 lg:block lg:space-y-2">
+        <nav
+          aria-label="Primary navigation"
+          className="mt-5 flex gap-2 overflow-x-auto lg:mt-10 lg:block lg:space-y-2 lg:overflow-visible"
+        >
           {navigation.map((item) => {
             const active = item.exact
               ? pathname === item.href
@@ -50,6 +53,7 @@ export function AppShell({ children }: { children: ReactNode }) {
               <Link
                 key={item.href}
                 href={item.href}
+                aria-current={active ? "page" : undefined}
                 className={`block rounded-lg px-3 py-2.5 text-sm font-medium transition ${
                   active
                     ? "bg-white/10 text-white"
@@ -66,7 +70,7 @@ export function AppShell({ children }: { children: ReactNode }) {
       <div className="min-w-0">
         <header className="border-b border-slate-200 bg-white px-5 py-4 sm:px-8">
           <div className="flex flex-col gap-4 xl:flex-row xl:items-center xl:justify-between">
-            <div className="grid gap-3 sm:grid-cols-2">
+            <div className="grid min-w-0 gap-3 sm:grid-cols-2">
               <label className="text-xs font-semibold uppercase tracking-wider text-slate-500">
                 Organization
                 <select
@@ -74,7 +78,7 @@ export function AppShell({ children }: { children: ReactNode }) {
                   onChange={(event) =>
                     void workspace.selectOrganization(event.target.value)
                   }
-                  className="mt-1.5 block w-full min-w-52 rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm font-medium normal-case tracking-normal text-slate-800"
+                  className="mt-1.5 block w-full min-w-0 rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm font-medium normal-case tracking-normal text-slate-800 sm:min-w-52"
                 >
                   {workspace.organizations.length === 0 ? (
                     <option value="">No organizations</option>
@@ -93,8 +97,9 @@ export function AppShell({ children }: { children: ReactNode }) {
                   disabled={
                     !workspace.selectedOrganization || workspace.loadingProjects
                   }
+                  aria-busy={workspace.loadingProjects}
                   onChange={(event) => workspace.selectProject(event.target.value)}
-                  className="mt-1.5 block w-full min-w-52 rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm font-medium normal-case tracking-normal text-slate-800 disabled:bg-slate-100"
+                  className="mt-1.5 block w-full min-w-0 rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm font-medium normal-case tracking-normal text-slate-800 disabled:bg-slate-100 sm:min-w-52"
                 >
                   {workspace.projects.length === 0 ? (
                     <option value="">
@@ -109,12 +114,14 @@ export function AppShell({ children }: { children: ReactNode }) {
                 </select>
               </label>
             </div>
-            <div className="flex items-center justify-between gap-4 xl:justify-end">
-              <div className="text-right">
-                <p className="text-sm font-semibold">
+            <div className="flex min-w-0 items-center justify-between gap-4 xl:justify-end">
+              <div className="min-w-0 text-right">
+                <p className="truncate text-sm font-semibold">
                   {workspace.user.displayName ?? "AgentPulse user"}
                 </p>
-                <p className="text-xs text-slate-500">{workspace.user.email}</p>
+                <p className="truncate text-xs text-slate-500" title={workspace.user.email}>
+                  {workspace.user.email}
+                </p>
               </div>
               <button
                 type="button"
@@ -127,7 +134,17 @@ export function AppShell({ children }: { children: ReactNode }) {
           </div>
         </header>
 
-        <main className="p-5 sm:p-8">{children}</main>
+        <main className="p-5 sm:p-8">
+          {workspace.error ? (
+            <p
+              role="alert"
+              className="mx-auto mb-6 max-w-7xl break-words rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700"
+            >
+              {workspace.error}
+            </p>
+          ) : null}
+          {children}
+        </main>
       </div>
     </div>
   );

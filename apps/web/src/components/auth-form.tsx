@@ -44,7 +44,7 @@ export function AuthForm({ mode }: AuthFormProps) {
 
   return (
     <main className="grid min-h-screen lg:grid-cols-[1.1fr_0.9fr]">
-      <section className="hidden bg-[#172033] p-12 text-white lg:flex lg:flex-col lg:justify-between">
+      <section className="hidden min-w-0 bg-[#172033] p-12 text-white lg:flex lg:flex-col lg:justify-between">
         <Link href="/" className="text-xl font-semibold tracking-tight">
           Agent<span className="text-indigo-300">Pulse</span>
         </Link>
@@ -63,8 +63,8 @@ export function AuthForm({ mode }: AuthFormProps) {
         <p className="text-sm text-slate-400">Built for teams shipping agents.</p>
       </section>
 
-      <section className="flex items-center justify-center px-5 py-12 sm:px-10">
-        <div className="w-full max-w-md">
+      <section className="flex min-w-0 items-center justify-center px-5 py-12 sm:px-10">
+        <div className="min-w-0 w-full max-w-md">
           <Link
             href="/"
             className="mb-12 inline-block text-xl font-semibold tracking-tight lg:hidden"
@@ -92,7 +92,7 @@ export function AuthForm({ mode }: AuthFormProps) {
                   onChange={(event) => setDisplayName(event.target.value)}
                   autoComplete="name"
                   maxLength={100}
-                  className="mt-2 w-full rounded-xl border border-slate-300 bg-white px-4 py-3 shadow-sm transition focus:border-indigo-500"
+                  className="mt-2 w-full min-w-0 rounded-xl border border-slate-300 bg-white px-4 py-3 shadow-sm transition focus:border-indigo-500"
                   placeholder="Ada Lovelace"
                 />
               </label>
@@ -105,7 +105,7 @@ export function AuthForm({ mode }: AuthFormProps) {
                 type="email"
                 autoComplete="email"
                 required
-                className="mt-2 w-full rounded-xl border border-slate-300 bg-white px-4 py-3 shadow-sm transition focus:border-indigo-500"
+                className="mt-2 w-full min-w-0 rounded-xl border border-slate-300 bg-white px-4 py-3 shadow-sm transition focus:border-indigo-500"
                 placeholder="you@company.com"
               />
             </label>
@@ -118,7 +118,7 @@ export function AuthForm({ mode }: AuthFormProps) {
                 autoComplete={isSignup ? "new-password" : "current-password"}
                 minLength={isSignup ? 12 : undefined}
                 required
-                className="mt-2 w-full rounded-xl border border-slate-300 bg-white px-4 py-3 shadow-sm transition focus:border-indigo-500"
+                className="mt-2 w-full min-w-0 rounded-xl border border-slate-300 bg-white px-4 py-3 shadow-sm transition focus:border-indigo-500"
                 placeholder={isSignup ? "At least 12 characters" : "Your password"}
               />
             </label>
