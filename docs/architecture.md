@@ -1,445 +1,147 @@
-# AgentPulse Architecture
-
-AgentPulse is an AI Agent Observability and Reliability platform.
-
-Its purpose is to help developers monitor, debug, and understand AI-agent executions by collecting and visualizing telemetry such as agent runs, execution traces, LLM calls, tool calls, execution steps, latency, token usage, cost, errors, and failures.
-
-The platform should help developers answer:
-- What happened during an agent run?
-- Which steps were executed?
-- Which LLM or tool was called?
-- Where did the execution fail?
-- How long did each step take?
-- How many tokens were used?
-- How much did the execution cost?
-- What is the likely root cause of a failure?
-
-## Target High-Level Architecture
-
-AI Agent
-    ↓
-AgentPulse SDK
-    ↓
-Ingestion API (NestJS)
-    ↓
-Redis / BullMQ
-    ↓
-Background Worker
-    ↓
-PostgreSQL
-    ↓
-NestJS API
-    ↓
-Next.js Dashboard
-
-Redis, BullMQ, and the background worker are part of the target architecture,
-but they are deferred from the initial Month 1 database implementation. The
-Month 1 persistence path writes validated telemetry to PostgreSQL without
-requiring the queue layer.
-
-## Repository Architecture
-
-AgentPulse/
-├── apps/
-│   ├── web/                 # Next.js frontend
-│   └── api/                 # NestJS backend
-├── packages/
-│   ├── shared/              # Telemetry contracts and validation
-│   └── sdk/                 # TypeScript instrumentation SDK
-├── examples/
-│   └── demo-agent/          # Deterministic end-to-end workload
-├── deploy/                  # Production Compose configuration
-├── docs/
-│   ├── architecture.md
-│   ├── database-schema.md
-│   ├── demo.md
-│   └── deployment.md
-├── AGENTS.md
-├── README.md
-└── .gitignore
-
-## Core Concepts
-
-### Organization
-
-An organization represents a company, team, or group using AgentPulse. An organization can contain multiple projects.
-
-Organization
-    ├── Project A
-    ├── Project B
-    └── Project C
-
-V1 enforces organization-level multi-tenancy through authenticated membership
-and project ownership checks. Invitations, enterprise identity, and other
-advanced tenant administration remain deferred.
-
-### Project
-
-A project represents an application or AI-agent system being monitored. Each
-project has its own revocable API credentials for sending telemetry.
-
-### Agent Run / Trace
-
-An Agent Run represents one complete execution of an AI agent. In the
-canonical Month 1 database model, one row in `traces` represents that complete
-Agent Run. There is no separate `agent_runs` table.
-
-Example:
-
-User Request
-    ↓
-Agent Run
-    ├── LLM Call
-    ├── Tool Call
-    ├── LLM Call
-    └── Final Response
-
-An Agent Run/trace should contain:
-- trace ID
-- project ID
-- agent name
-- start time
-- end time
-- status
-- total duration
-- total tokens
-- estimated cost
-- error information when applicable
-
-Possible statuses:
-- running
-- success
-- failed
-
-## Traces and Spans
-
-An agent execution can contain multiple nested operations. AgentPulse stores
-the complete execution in `traces` and represents its operations as typed rows
-in `spans`. LLM calls, tool calls, and retrievals use the canonical span types
-`llm_call`, `tool_call`, and `retrieval`.
-
-Example:
-
-Agent Run
-├── Planning
-│   └── LLM Call
-├── Search
-│   └── Tool Call
-└── Final Response
-    └── LLM Call
-
-Each span should contain:
-- span ID
-- parent span ID
-- trace ID
-- operation name
-- type
-- start time
-- end time
-- duration
-- status
-- metadata
-- error information
-
-The parentSpanId allows nested operations to form a trace tree.
-
-Failures are recorded through trace/span status and error fields rather than a
-separate Month 1 error table. Provider, model, token, cost, input/output, and
-other operation-specific telemetry may be stored on the typed span fields
-defined by the database schema.
-
-## LLM Calls
-
-An LLM call represents a request made by an agent to an LLM provider. In Month
-1 persistence it is a span with `span_type = 'llm_call'`, not a separate table.
-
-The system should be able to record:
-- provider
-- model
-- input token count
-- output token count
-- total token count
-- latency
-- estimated cost
-- request metadata
-- response metadata
-
-Raw prompts and responses may contain sensitive information and must be handled carefully.
-
-## Tool Calls
-
-A tool call represents an external tool or function executed by an agent. In
-Month 1 persistence it is a span with `span_type = 'tool_call'`, not a separate
-table. Retrieval operations use `span_type = 'retrieval'`.
-
-Examples:
-- web_search
-- database_query
-- calculator
-- weather_api
-- custom_function
-
-A tool call should record:
-- tool name
-- input
-- output metadata
-- start time
-- end time
-- duration
-- status
-- error information
-
-Sensitive tool input and output should not be stored without appropriate handling.
-
-## Errors
-
-AgentPulse should capture errors occurring during an agent execution. An error should be associated with the relevant run and span.
-
-Example:
-
-Agent Run
-├── LLM Call       ✓
-├── Search Tool    ❌
-│   └── TimeoutError
-└── Agent Failed
-
-Error information should include:
-- error type
-- error message
-- stack trace when available
-- timestamp
-- associated run
-- associated span
-
-## Telemetry Ingestion
-
-The AgentPulse SDK sends telemetry to the backend.
-
-Initial Month 1 flow:
-
-Agent
-  ↓
-AgentPulse SDK
-  ↓
-POST /v1/ingest
-  ↓
-NestJS
-  ↓
-PostgreSQL
-
-The ingestion endpoint should accept structured telemetry and validate incoming data before processing it.
-
-The Month 1 implementation should keep synchronous processing minimal. A queue
-and background worker may be introduced later when ingestion volume or
-processing requirements justify them.
-
-## Authentication and API Keys
-
-Each project can have one or more API keys.
-
-Project
-    ↓
-API Key
-    ↓
-AgentPulse SDK
-    ↓
-Telemetry Ingestion
-
-API keys must:
-- never be hardcoded in source code
-- never be committed to Git
-- never be exposed unnecessarily
-- be stored securely
+# AgentPulse architecture
+
+This document describes the implemented V1 architecture. The codebase is the
+source of truth; planned distributed components are intentionally excluded.
+
+## System overview
+
+```mermaid
+flowchart LR
+  Agent[Server-side AI agent] --> SDK[TypeScript SDK]
+  SDK -->|POST /v1/ingest| API[NestJS API]
+  Browser[Browser] --> Web[Next.js web]
+  Web -->|Server-side authenticated proxy| API
+  API --> DB[(PostgreSQL 18)]
+  API -. best-effort SSE .-> Web
+  API -. optional HTTPS .-> Hooks[Alert webhooks]
+  API -. optional HTTPS .-> RCA[OpenAI-compatible RCA provider]
+```
+
+AgentPulse runs as two Node.js services plus PostgreSQL:
+
+- `apps/web`: authentication UI, workspace/project selection, project API-key
+  management, run metrics and filters, alert events, and trace/span detail.
+- `apps/api`: authentication, tenant authorization, API keys, ingestion, trace
+  reads and aggregates, alert evaluation/delivery, realtime events, and failed
+  trace root-cause analysis.
+- `packages/shared`: the runtime-validated trace/span telemetry contract.
+- `packages/sdk`: manual TypeScript instrumentation and ingestion client.
+- PostgreSQL: the durable source of truth.
+
+Redis, BullMQ, and a separate worker service are not required by the current
+implementation.
+
+## Core data model
+
+An organization contains projects and memberships. Each project owns API keys,
+traces, alert rules, and alert events.
+
+One trace represents one complete agent execution (also called a run in the
+dashboard). A trace contains zero or more spans. There is no separate
+`agent_runs` table.
+
+Supported span types are:
+
+- `agent`
+- `retrieval`
+- `tool_call`
+- `llm_call`
+- `custom`
+
+`parentSpanId` forms the span tree within a trace. Trace and span status values
+are `running`, `success`, or `failed`; the current SDK sends completed traces
+as `success` or `failed`.
+
+The implemented Prisma schema and checked-in migrations under
+[`apps/api/prisma/`](../apps/api/prisma/) are authoritative. The
+[Month 1 database design](database-schema.md) remains background rationale, not
+an operational schema or migration source.
+
+## Telemetry ingestion flow
+
+```text
+Agent code
+  -> AgentPulse.startTrace/startSpan/endSpan/endTrace
+  -> POST /v1/ingest with Authorization: Bearer <project key>
+  -> API-key authentication and per-key/project rate limiting
+  -> shared contract validation
+  -> transactional trace/span upsert in PostgreSQL
+  -> 202 { traceId, spansProcessed }
+```
+
+The API derives the project from the API key and rejects a client-supplied
+`projectId`. Reusing a trace and span ID in the same project/trace is
+idempotent. An ID already owned by another project or trace returns a conflict.
+
+After the transaction commits, the API publishes a best-effort in-process
+`telemetry.ingested` event and enqueues alert evaluation in a
+concurrency-limited in-process post-ingest queue. PostgreSQL remains
+authoritative if realtime delivery or post-ingest processing is unavailable.
+
+See [Getting started](getting-started.md) for the SDK and ingest contract.
+
+## Dashboard and authentication flow
+
+The browser talks to Next.js Route Handlers rather than directly storing API
+access tokens. The web service proxies authenticated requests to the NestJS API
+and keeps access/refresh tokens in HttpOnly cookies.
+
+The API enforces organization membership and project-scoped authorization on
+workspace, project, key, trace, alert, and RCA reads. A project key
+authenticates only telemetry ingestion; it is not a dashboard session
+credential.
+
+Dashboard screens query PostgreSQL-backed API endpoints for their initial and
+recovery state. Project-scoped Server-Sent Events notify the dashboard about
+new telemetry and alert events, but the UI continues to work through ordinary
+reads when the stream reconnects.
+
+## API keys and trust boundaries
+
+Project API keys are high-entropy bearer credentials. At creation, the API
+returns the raw key once. PostgreSQL stores its SHA-256 digest, display prefix,
+usage timestamp, optional expiry, and optional revocation timestamp.
 
-## PostgreSQL
-
-PostgreSQL will be the primary persistent database.
-
-The canonical Month 1 persistence model contains exactly these core tables:
-
-- `organizations`
-- `users`
-- `org_members`
-- `projects`
-- `api_keys`
-- `traces`
-- `spans`
-
-One `traces` row represents one complete Agent Run/execution. LLM calls, tool
-calls, retrievals, and failures are represented through typed spans and
-trace/span fields; they do not require separate Month 1 tables.
-
-[`database-schema.md`](./database-schema.md) is the source of truth for Month 1
-PostgreSQL persistence, including fields, constraints, relationships, and
-indexes.
-
-## Redis and BullMQ
-
-Redis and BullMQ are deferred from the initial Month 1 database implementation.
-They may later be used for asynchronous telemetry processing when the direct
-ingestion path has been proven and operational requirements justify a queue.
-
-Example:
-
-POST /v1/ingest
-       ↓
-   Validate
-       ↓
- Add Queue Job
-       ↓
-    Return
-       ↓
-    Worker
-       ↓
- PostgreSQL
-
-This allows telemetry ingestion to remain fast while processing happens asynchronously.
-
-## Dashboard
-
-The Next.js dashboard provides visibility into agent executions.
-
-Initial dashboard areas:
-- Projects
-- Agent Runs
-- Run Details
-- Traces
-- Errors
-- Performance
-- Cost / Token Usage
-
-The most important MVP screen is the Run Details page.
-
-Example:
-
-Agent Run #1842
-
-Status: FAILED
-Duration: 4.82s
-Tokens: 2,431
-Estimated Cost: $0.04
-
-Trace
-────────────────────────────────
-
-Planning             820ms       ✓
-   └── LLM Call      820ms       ✓
-
-Search               2.81s       ❌
-   └── Web Search    2.81s       ❌ TIMEOUT
-
-Final Response       --          ❌
-
-## AI Root-Cause Analysis
-
-After the core observability system works, AgentPulse will use an LLM to analyze failed executions.
-
-Example:
-
-Run failed.
-
-Likely root cause:
-The web-search tool exceeded its configured timeout.
-
-Evidence:
-- Search operation lasted 2.81 seconds.
-- The configured timeout was 2 seconds.
-- The downstream LLM step never received the required data.
-
-This feature must be implemented after telemetry ingestion, storage, traces, and dashboard functionality are working.
-
-## Alerts
-
-AgentPulse will eventually support alerts for:
-- high error rate
-- high latency
-- repeated tool failures
-- high token usage
-- high cost
-- agent failures
-
-Example:
-
-IF error_rate > threshold
-        ↓
-    Create Alert
-        ↓
-Slack / Email / Dashboard
-
-Alerts are not part of the first implementation milestone.
-
-### Advanced V1 alert execution
-
-After telemetry is committed, enabled project alert rules are evaluated
-synchronously from persisted completed traces in the deterministic five-minute
-window ending at the ingested trace's `started_at`. Error rate is failed runs
-divided by completed runs, latency is average completed-run duration, and cost
-is the sum of completed-run cost in that window. A triggered rule creates one
-`alert_events` row per rule and evaluation trace, which makes repeated ingestion
-idempotent. Webhook delivery happens only after the event is durable and cannot
-roll back telemetry.
-
-The API publishes best-effort, project-scoped Server-Sent Events for new
-telemetry and triggered alerts. SSE is an in-process dashboard optimization;
-PostgreSQL remains the source of truth and the dashboard continues to use its
-normal read APIs when no stream is connected. Redis and BullMQ are not required
-for this single-process V1 implementation.
-
-Failed-trace RCA uses an isolated OpenAI-compatible HTTP adapter configured only
-through environment variables. It receives trace/span operational status and
-error context, not captured input/output payloads. When no provider is
-configured or a request fails, the API returns a local evidence-based fallback.
-
-## MVP Development Flow
-
-The MVP should be built in this order:
-
-1. Project and API-key foundation
-2. Telemetry data model
-3. Ingestion API
-4. PostgreSQL persistence
-5. AgentPulse SDK
-6. Demo AI Agent
-7. Trace visualization
-8. Run Details dashboard
-9. Basic error monitoring
-10. Metrics
-
-Only after the core flow works should we prioritize:
-- AI Root-Cause Analysis
-- Alerts
-- Advanced tenant administration
-- Advanced analytics
-- Scaling
-
-## First Major Milestone
-
-The first complete end-to-end milestone is:
-
-Demo AI Agent
-      ↓
-AgentPulse SDK
-      ↓
-POST /v1/ingest
-      ↓
-NestJS
-      ↓
-PostgreSQL
-      ↓
-Next.js Dashboard
-      ↓
-Developer sees the Agent Run
-
-If this flow works, AgentPulse has its first real end-to-end functionality.
-
-## Development Principle
-
-Build the smallest version that proves the core idea.
-
-Do not implement advanced distributed systems, complex analytics, multi-tenancy, or AI analysis before the basic telemetry pipeline works.
-
-The priority is:
-
-Capture → Ingest → Store → Query → Visualize.
-
-AgentPulse is an AI-agent observability and reliability platform. It is not a resume analyzer.
+The SDK is intended for server-side agent code. Keys must not be embedded in a
+browser bundle, committed, logged, or included in captured telemetry. The API
+never uses a client-provided project identifier to route ingestion.
+
+Captured input, output, metadata, attributes, error messages, and stacks are
+application-provided telemetry and may contain sensitive data. Integrators are
+responsible for redaction and data-minimization before instrumentation.
+
+## Metrics, alerts, and realtime events
+
+Run metrics are PostgreSQL aggregates over project traces: total/success/failed
+counts, success/error rates, average completed-run latency, token totals, and
+estimated cost.
+
+Enabled alert rules are evaluated from persisted completed traces in the
+five-minute window ending at the ingested trace's start time. Supported rule
+types are error rate, average latency, and total cost. Triggered events are
+persisted before optional webhook delivery. Delivery configuration maps project
+IDs to HTTPS URLs through `ALERT_WEBHOOK_URLS_JSON`.
+
+The in-process SSE channel publishes `telemetry.ingested` and
+`alert.triggered`; it also sends heartbeats. It is a dashboard optimization,
+not a durable event bus.
+
+## Root-cause analysis
+
+RCA is available only for failed traces. The API constructs evidence from
+trace/span status, latency, provider/model, and error fields. Captured span
+input and output are not sent to the RCA provider.
+
+When `RCA_PROVIDER_API_KEY` and `RCA_PROVIDER_MODEL` are configured, the API
+calls an OpenAI-compatible chat-completions endpoint at
+`RCA_PROVIDER_BASE_URL`. Without a configured provider, or if the provider
+fails, the API returns a local evidence-based explanation.
+
+## Deployment topology
+
+The included production Compose stack runs Caddy, web, API, PostgreSQL, and a
+one-shot migration container. Only Caddy publishes host ports. Managed
+platforms can deploy the two Node.js services and PostgreSQL separately.
+
+See [Deployment](deployment.md) for the exact environment matrix, migration
+order, health probes, TLS, and operational requirements.

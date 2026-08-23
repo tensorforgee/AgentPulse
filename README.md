@@ -1,41 +1,61 @@
 # AgentPulse
 
-AgentPulse is a multi-tenant observability platform for AI agents. It captures
-complete agent executions as traces, records nested LLM/tool/retrieval work as
-spans, and makes status, latency, tokens, cost, errors, and input/output context
-understandable in a web dashboard.
+AgentPulse is a multi-tenant observability platform for AI agents. A complete
+agent execution is recorded as a trace; nested agent, retrieval, tool, LLM, and
+custom operations are recorded as spans. The dashboard makes status, latency,
+tokens, estimated cost, captured input/output, and failures inspectable by
+project.
 
-## V1 architecture
+## Start here
+
+- **New developer:** follow [Getting started](docs/getting-started.md) to run
+  AgentPulse locally, create a project key, and send a first trace.
+- **Instrumentation example:** run the realistic, deterministic
+  [support RAG agent](examples/support-rag-agent/README.md).
+- **End-to-end review:** use the [reviewer demo](docs/demo.md) to emit one
+  successful and one failed trace.
+- **Production:** use the [deployment guide](docs/deployment.md) for managed
+  services or the included Docker Compose stack.
+
+## Architecture
 
 ```mermaid
 flowchart LR
-  Agent[External agent] --> SDK[TypeScript SDK]
-  SDK -->|POST /v1/ingest| API[NestJS API]
-  Web[Next.js dashboard] -->|JWT-authenticated reads| API
+  Agent[Server-side agent] --> SDK[TypeScript SDK]
+  SDK -->|POST /v1/ingest + project key| API[NestJS API]
+  Browser[Browser] --> Web[Next.js dashboard]
+  Web -->|Authenticated server-side proxy| API
   API --> DB[(PostgreSQL 18)]
 ```
 
-One `traces` row is one complete agent execution. Nested operations live in
-`spans`; V1 intentionally has no separate `agent_runs` table or queue layer.
-See [architecture.md](docs/architecture.md) and the canonical
-[database schema](docs/database-schema.md).
+The SDK sends one completed trace and its spans in a single authenticated
+ingest request. The API resolves the project from the API key, validates the
+shared telemetry contract, and writes to PostgreSQL. Dashboard reads are
+tenant-scoped. The current V1 does not require Redis, BullMQ, or a separate
+worker service.
+
+See [Architecture](docs/architecture.md) for the implemented components and
+data flows. The Prisma schema and migrations under `apps/api/prisma/` are the
+source of truth for persistence.
 
 ## Repository
 
 ```text
-apps/web/             Next.js dashboard and server-side API proxy
-apps/api/             NestJS API, Prisma schema, and migrations
-packages/shared/      Shared telemetry contracts and validation
-packages/sdk/         Manual-instrumentation TypeScript SDK
-examples/demo-agent/  Deterministic success/failure demo workload
-examples/support-rag-agent/  Realistic SDK-only support RAG workflow
-deploy/               Production Compose configuration
-docs/                 Architecture, schema, deployment, and demo guides
+apps/web/                     Next.js dashboard and server-side API proxy
+apps/api/                     NestJS API, Prisma schema, and migrations
+packages/shared/              Telemetry contracts and validation
+packages/sdk/                 Manual-instrumentation TypeScript SDK
+examples/demo-agent/          Deterministic success/failure demo
+examples/support-rag-agent/   Realistic support RAG instrumentation example
+deploy/                       Production Compose and Caddy configuration
+docs/                         Developer, architecture, demo, and deployment docs
 ```
 
-## Local setup
+## Local development
 
-Prerequisites: Node.js 24, pnpm 11.22.0, and PostgreSQL 18.
+Prerequisites: Node.js 24, pnpm 11.22.0, and a running PostgreSQL 18 database.
+
+From the repository root in PowerShell:
 
 ```powershell
 pnpm install --frozen-lockfile
@@ -43,93 +63,82 @@ Copy-Item apps/api/.env.example apps/api/.env
 Copy-Item apps/web/.env.example apps/web/.env.local
 ```
 
-Set the ignored API environment file to your local PostgreSQL URL and two
-different high-entropy JWT secrets. Then apply migrations and start the apps:
+In `apps/api/.env`, replace `DATABASE_URL` with a reachable local database URL
+and set different high-entropy values of at least 32 bytes for
+`JWT_ACCESS_SECRET` and `JWT_REFRESH_SECRET`. The defaults expect the web app at
+`http://localhost:3000` and the API at `http://localhost:5000`.
+
+Apply the checked-in migrations, then start both applications:
 
 ```powershell
 pnpm --filter api db:migrate:deploy
 pnpm dev
 ```
 
-Open `http://localhost:3000`. The API listens on `http://localhost:5000` by
-default. Create an account, organization, project, and project API key from the
-web app.
+Open `http://localhost:3000`, create an account, organization, project, and
+project API key. The plaintext key is shown once; save it immediately. Continue
+with the [SDK quickstart](docs/getting-started.md#typescript-sdk-quickstart).
 
-## Environment variables
+## SDK at a glance
 
-- API: `DATABASE_URL`, `JWT_ACCESS_SECRET`, `JWT_REFRESH_SECRET`, `PORT`, and
-  `CORS_ORIGINS`.
-- Web: server-only `AGENTPULSE_API_URL`.
-- Demo: `AGENTPULSE_API_KEY` and `AGENTPULSE_BASE_URL`.
-
-Examples contain placeholders only. `.env` files are ignored and must never be
-committed. See [deployment.md](docs/deployment.md) for the production variable
-matrix and migration sequence.
-
-## SDK usage
-
-The V1 SDK is consumed as a workspace package. From a TypeScript agent package
-in this monorepo, add it and then keep the project key in server-side
-environment configuration:
+The current SDK is a private workspace package; it is not published to a
+package registry. Add it from a package inside this pnpm workspace:
 
 ```powershell
 pnpm add @agentpulse/sdk@workspace:*
 ```
 
-```dotenv
-AGENTPULSE_API_KEY=<your-project-api-key>
-AGENTPULSE_BASE_URL=http://127.0.0.1:5000
-```
-
 ```ts
 import { AgentPulse } from "@agentpulse/sdk";
 
-const pulse = new AgentPulse(
-  process.env.AGENTPULSE_API_KEY!,
-  process.env.AGENTPULSE_BASE_URL!,
-);
+async function main() {
+  const pulse = new AgentPulse(
+    process.env.AGENTPULSE_API_KEY!,
+    process.env.AGENTPULSE_BASE_URL ?? "http://127.0.0.1:5000",
+  );
 
-const trace = pulse.startTrace({
-  name: "answer-question",
-  agentName: "support-agent",
-});
-const retrieval = pulse.startSpan(trace, {
-  type: "retrieval",
-  name: "search-docs",
-});
-pulse.endSpan(retrieval, {
-  status: "success",
-  latencyMs: 85,
-  output: { matches: 3 },
-});
-await pulse.endTrace(trace, {
-  status: "success",
-  inputTokens: 400,
-  outputTokens: 20,
-  totalCost: "0.00180000",
-});
+  const trace = pulse.startTrace({
+    agentName: "support-agent",
+    name: "answer-question",
+  });
+  const span = pulse.startSpan(trace, {
+    type: "llm_call",
+    name: "generate-answer",
+    input: { question: "How do I rotate a project key?" },
+  });
+
+  pulse.endSpan(span, {
+    output: {
+      answer: "Create a replacement, verify it, then revoke the old key.",
+    },
+    inputTokens: 120,
+    outputTokens: 24,
+    estimatedCost: "0.0012",
+  });
+
+  await pulse.endTrace(trace);
+}
+
+void main();
 ```
 
-The SDK sends the completed trace through `POST /v1/ingest` with
-`Authorization: Bearer <project-api-key>`. It never logs or embeds the key in
-errors. The raw key is shown once in the dashboard; store it in a secret manager.
+`endTrace()` validates and sends the trace to `POST /v1/ingest` with the project
+key in `Authorization: Bearer …`. Read [Getting started](docs/getting-started.md)
+for nested spans, failure instrumentation, the ingest contract, security, and
+troubleshooting.
 
-## Demo and verification
+## Documentation
 
-Set `AGENTPULSE_API_KEY`, then run:
+| Guide                                                       | Use it for                                                                            |
+| ----------------------------------------------------------- | ------------------------------------------------------------------------------------- |
+| [Getting started](docs/getting-started.md)                  | Local setup, project keys, SDK instrumentation, ingest reference, and troubleshooting |
+| [Architecture](docs/architecture.md)                        | Implemented services, trust boundaries, storage, alerts, realtime updates, and RCA    |
+| [Support RAG example](examples/support-rag-agent/README.md) | A runnable success/failure integration with nested spans                              |
+| [Reviewer demo](docs/demo.md)                               | Deterministic end-to-end dashboard verification                                       |
+| [Deployment](docs/deployment.md)                            | Production variables, migrations, health checks, Compose, TLS, and operations         |
+| [Database design background](docs/database-schema.md)       | Historical Month 1 schema rationale; Prisma is authoritative for the current schema   |
 
-```powershell
-pnpm demo
-```
-
-The deterministic demo emits successful and failed nested traces without an
-external AI provider. Follow the [reviewer demo](docs/demo.md) to verify the
-database-to-dashboard flow and capture safe screenshots.
-
-For a realistic one-invocation/one-trace workflow with retrieval, tool, and LLM
-spans, see the [support RAG agent](examples/support-rag-agent/README.md).
-
-Repository checks:
+## Repository checks
 
 ```powershell
 pnpm lint
@@ -138,13 +147,18 @@ pnpm test
 pnpm --filter api test:e2e -- --runInBand
 ```
 
-## Deployment
+The API end-to-end suite requires a reachable test PostgreSQL database through
+`DATABASE_URL`. Individual SDK and example checks are listed in
+[Getting started](docs/getting-started.md#verify-the-integration).
 
-AgentPulse supports ordinary Node.js services or the included single-host
-Docker Compose stack with Caddy TLS, private application networks, PostgreSQL
-18, health-gated startup, and a one-shot `prisma migrate deploy` release step.
-Keep all credentials in an ignored deployment env file or a secret manager.
+## Security baseline
 
-See [deployment.md](docs/deployment.md) for managed-platform and self-hosted
-instructions. A live deployment still requires a Linux host, two DNS records,
-deployment secrets, and production backup/operations ownership.
+- Keep project API keys in server-side environment variables or a secret
+  manager; never ship them to browser code or commit them.
+- AgentPulse stores only a key digest and display prefix. The raw key cannot be
+  recovered after its one-time creation response.
+- Treat trace/span input, output, metadata, attributes, error messages, and
+  stacks as potentially sensitive telemetry. Capture only what your policy
+  permits.
+- Use HTTPS API origins outside local development and follow the
+  [deployment guide](docs/deployment.md) for production secrets and networking.
