@@ -27,7 +27,7 @@ export class UpdateAlertRuleDto {
   type?: AlertRuleType;
 
   @IsOptional()
-  @IsNumber({ allowInfinity: false, allowNaN: false, maxDecimalPlaces: 8 })
+  @IsNumber({ allowInfinity: false, allowNaN: false })
   @IsPositive()
   threshold?: number;
 

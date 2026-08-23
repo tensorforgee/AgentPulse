@@ -140,6 +140,12 @@ function validateThreshold(type: AlertRuleType, threshold: number): void {
     throw new BadRequestException('threshold must be greater than zero');
   }
 
+  if (new Prisma.Decimal(threshold).decimalPlaces() > 8) {
+    throw new BadRequestException(
+      'threshold must have no more than 8 decimal places',
+    );
+  }
+
   if (type === 'error_rate' && threshold > 1) {
     throw new BadRequestException(
       'error_rate threshold must be a ratio greater than zero and at most 1',
