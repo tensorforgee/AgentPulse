@@ -1,0 +1,21 @@
+{
+  "name": "@agentpulse/support-rag-agent-example",
+  "version": "0.0.1",
+  "private": true,
+  "description": "Practical local RAG support-agent integration for AgentPulse",
+  "scripts": {
+    "prebuild": "pnpm --filter @agentpulse/sdk build",
+    "build": "tsc -p tsconfig.json",
+    "lint": "tsc -p tsconfig.json --noEmit",
+    "prestart": "pnpm run build",
+    "start": "node dist/index.js",
+    "test": "pnpm run build && node test/workflow.test.js"
+  },
+  "dependencies": {
+    "@agentpulse/sdk": "workspace:*"
+  },
+  "devDependencies": {
+    "@types/node": "^24.0.0",
+    "typescript": "^5.7.3"
+  }
+}
