@@ -63,6 +63,7 @@ export class OrganizationMembershipGuard implements CanActivate {
         name: membership.organization.name,
         slug: membership.organization.slug,
         plan: membership.organization.plan,
+        subscriptionStatus: membership.organization.subscriptionStatus,
         createdAt: membership.organization.createdAt,
         updatedAt: membership.organization.updatedAt,
       },
