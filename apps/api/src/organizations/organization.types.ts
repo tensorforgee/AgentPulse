@@ -15,6 +15,7 @@ export const organizationSelect = {
   name: true,
   slug: true,
   plan: true,
+  subscriptionStatus: true,
   createdAt: true,
   updatedAt: true,
 } satisfies Prisma.OrganizationSelect;

@@ -14,7 +14,7 @@ model User {
   id           String               @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
   email        String               @unique(map: "users_email_key") @db.VarChar(320)
   passwordHash String               @map("password_hash") @db.Text
-  refreshTokenHash String?          @map("refresh_token_hash") @db.Text
+  refreshTokenHash String?              @map("refresh_token_hash") @db.Text
   displayName  String?              @map("display_name") @db.Text
   createdAt    DateTime             @default(now()) @map("created_at") @db.Timestamptz(6)
   updatedAt    DateTime             @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
@@ -24,16 +24,21 @@ model User {
 }
 
 model Organization {
-  id               String               @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  name             String               @db.Text
-  slug             String               @unique(map: "organizations_slug_key") @db.VarChar(100)
-  plan             String               @default("free") @db.Text
-  stripeCustomerId String?              @map("stripe_customer_id") @db.Text
-  createdAt        DateTime             @default(now()) @map("created_at") @db.Timestamptz(6)
-  updatedAt        DateTime             @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
-  memberships      OrganizationMember[]
-  projects         Project[]
+  id                            String               @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  name                          String               @db.Text
+  slug                          String               @unique(map: "organizations_slug_key") @db.VarChar(100)
+  plan                          BillingPlan          @default(free)
+  subscriptionStatus            SubscriptionStatus   @default(none) @map("subscription_status")
+  billingProvider               String?              @map("billing_provider") @db.Text
+  externalBillingCustomerId     String?              @map("external_billing_customer_id") @db.Text
+  externalBillingSubscriptionId String?              @map("external_billing_subscription_id") @db.Text
+  createdAt                     DateTime             @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt                     DateTime             @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
+  memberships                   OrganizationMember[]
+  projects                      Project[]
 
+  @@unique([billingProvider, externalBillingCustomerId], map: "organizations_billing_provider_customer_id_key")
+  @@unique([billingProvider, externalBillingSubscriptionId], map: "organizations_billing_provider_subscription_id_key")
   @@map("organizations")
 }
 
@@ -187,4 +192,21 @@ model Span {
   @@index([traceId, startedAt, id], map: "spans_trace_id_started_at_id_idx")
   @@index([parentSpanId], map: "spans_parent_span_id_idx")
   @@map("spans")
+}
+
+enum BillingPlan {
+  free
+  pro
+
+  @@map("billing_plan")
+}
+
+enum SubscriptionStatus {
+  none
+  trialing
+  active
+  past_due
+  canceled
+
+  @@map("subscription_status")
 }
