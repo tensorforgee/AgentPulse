@@ -47,6 +47,7 @@ CORS origin, and internal routing configuration from drifting independently.
 | `DATABASE_URL` | Yes | PostgreSQL connection URL. Require TLS when the database is reached over a network. |
 | `JWT_ACCESS_SECRET` | Yes | High-entropy access-token signing secret, at least 32 random characters. |
 | `JWT_REFRESH_SECRET` | Yes | Separate high-entropy refresh-token signing secret. |
+| `AGENTPULSE_WEB_URL` | Yes for Stripe | Exact public web origin used for Checkout and portal return URLs. HTTPS is required in production. |
 
 The API also accepts optional configuration groups:
 
@@ -59,6 +60,10 @@ The API also accepts optional configuration groups:
 - AI root-cause analysis: `RCA_PROVIDER_API_KEY`, `RCA_PROVIDER_MODEL`, and
   optional `RCA_PROVIDER_BASE_URL`. RCA returns its documented graceful
   unconfigured response unless both the key and model are set.
+- Stripe subscriptions: `STRIPE_SECRET_KEY`, `STRIPE_WEBHOOK_SECRET`, and
+  `STRIPE_PRO_PRICE_ID`. Configure all three to enable hosted Checkout,
+  signed subscription webhooks, and the customer portal. When unset, usage
+  remains available while upgrade and management actions fail closed.
 - Alert delivery: `ALERT_WEBHOOK_URLS_JSON`, a JSON object mapping project IDs
   to HTTPS webhook URLs. Alert creation and ingestion continue if this setting
   is absent, invalid, or a delivery fails.

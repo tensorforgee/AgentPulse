@@ -34,14 +34,17 @@ describe('billing types and entitlements', () => {
       [...BILLING_PLAN_IDS].sort(),
     );
     expect(entitlementsForPlan(BillingPlan.free)).toEqual({
+      projectLimit: 1,
+      organizationMemberLimit: 3,
+      monthlyTraceLimit: 10_000,
+      traceRetentionDays: null,
+    });
+    expect(entitlementsForPlan(BillingPlan.pro)).toEqual({
       projectLimit: null,
       organizationMemberLimit: null,
       monthlyTraceLimit: null,
       traceRetentionDays: null,
     });
-    expect(entitlementsForPlan(BillingPlan.pro)).toBe(
-      entitlementsForPlan(BillingPlan.free),
-    );
     expect(SubscriptionStatus.none).toBe('none');
   });
 });

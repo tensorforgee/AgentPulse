@@ -11,35 +11,56 @@ datasource db {
 }
 
 model User {
-  id           String               @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  email        String               @unique(map: "users_email_key") @db.VarChar(320)
-  passwordHash String               @map("password_hash") @db.Text
-  refreshTokenHash String?              @map("refresh_token_hash") @db.Text
-  displayName  String?              @map("display_name") @db.Text
-  createdAt    DateTime             @default(now()) @map("created_at") @db.Timestamptz(6)
-  updatedAt    DateTime             @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
-  memberships  OrganizationMember[]
+  id                          String               @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  email                       String               @unique(map: "users_email_key") @db.VarChar(320)
+  passwordHash                String               @map("password_hash") @db.Text
+  refreshTokenHash            String?              @map("refresh_token_hash") @db.Text
+  displayName                 String?              @map("display_name") @db.Text
+  createdAt                   DateTime             @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt                   DateTime             @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
+  memberships                 OrganizationMember[]
+  createdOrganizationInvites  OrganizationInvite[] @relation("OrganizationInviteCreator")
+  acceptedOrganizationInvites OrganizationInvite[] @relation("OrganizationInviteAcceptor")
 
   @@map("users")
 }
 
 model Organization {
-  id                            String               @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  name                          String               @db.Text
-  slug                          String               @unique(map: "organizations_slug_key") @db.VarChar(100)
-  plan                          BillingPlan          @default(free)
-  subscriptionStatus            SubscriptionStatus   @default(none) @map("subscription_status")
-  billingProvider               String?              @map("billing_provider") @db.Text
-  externalBillingCustomerId     String?              @map("external_billing_customer_id") @db.Text
-  externalBillingSubscriptionId String?              @map("external_billing_subscription_id") @db.Text
-  createdAt                     DateTime             @default(now()) @map("created_at") @db.Timestamptz(6)
-  updatedAt                     DateTime             @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
+  id                            String                @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  name                          String                @db.Text
+  slug                          String                @unique(map: "organizations_slug_key") @db.VarChar(100)
+  plan                          BillingPlan           @default(free)
+  subscriptionStatus            SubscriptionStatus    @default(none) @map("subscription_status")
+  billingProvider               String?               @map("billing_provider") @db.Text
+  externalBillingCustomerId     String?               @map("external_billing_customer_id") @db.Text
+  externalBillingSubscriptionId String?               @map("external_billing_subscription_id") @db.Text
+  billingPeriodStartedAt        DateTime?             @map("billing_period_started_at") @db.Timestamptz(6)
+  billingPeriodEndsAt           DateTime?             @map("billing_period_ends_at") @db.Timestamptz(6)
+  cancelAtPeriodEnd             Boolean               @default(false) @map("cancel_at_period_end")
+  createdAt                     DateTime              @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt                     DateTime              @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
   memberships                   OrganizationMember[]
   projects                      Project[]
+  billingWebhookEvents          BillingWebhookEvent[]
+  invites                       OrganizationInvite[]
 
   @@unique([billingProvider, externalBillingCustomerId], map: "organizations_billing_provider_customer_id_key")
   @@unique([billingProvider, externalBillingSubscriptionId], map: "organizations_billing_provider_subscription_id_key")
   @@map("organizations")
+}
+
+model BillingWebhookEvent {
+  id              String        @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  provider        String        @db.Text
+  externalEventId String        @map("external_event_id") @db.Text
+  eventType       String        @map("event_type") @db.Text
+  organizationId  String?       @map("org_id") @db.Uuid
+  processedAt     DateTime      @default(now()) @map("processed_at") @db.Timestamptz(6)
+  organization    Organization? @relation(fields: [organizationId], references: [id], onDelete: SetNull)
+
+  @@unique([provider, externalEventId], map: "billing_webhook_events_provider_external_id_key")
+  @@index([organizationId, processedAt], map: "billing_webhook_events_org_id_processed_at_idx")
+  @@map("billing_webhook_events")
 }
 
 model OrganizationMember {
@@ -55,6 +76,27 @@ model OrganizationMember {
   @@unique([organizationId, userId], map: "org_members_org_id_user_id_key")
   @@index([userId], map: "org_members_user_id_idx")
   @@map("org_members")
+}
+
+model OrganizationInvite {
+  id               String       @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  organizationId   String       @map("org_id") @db.Uuid
+  email            String       @db.VarChar(320)
+  role             String       @default("member") @db.Text
+  tokenDigest      String       @unique(map: "organization_invites_token_digest_key") @map("token_digest") @db.Char(64)
+  expiresAt        DateTime     @map("expires_at") @db.Timestamptz(6)
+  acceptedAt       DateTime?    @map("accepted_at") @db.Timestamptz(6)
+  revokedAt        DateTime?    @map("revoked_at") @db.Timestamptz(6)
+  createdByUserId  String       @map("created_by_user_id") @db.Uuid
+  acceptedByUserId String?      @map("accepted_by_user_id") @db.Uuid
+  createdAt        DateTime     @default(now()) @map("created_at") @db.Timestamptz(6)
+  organization     Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  createdBy        User         @relation("OrganizationInviteCreator", fields: [createdByUserId], references: [id], onDelete: Restrict)
+  acceptedBy       User?        @relation("OrganizationInviteAcceptor", fields: [acceptedByUserId], references: [id], onDelete: SetNull)
+
+  @@unique([organizationId, email], map: "organization_invites_org_id_email_key")
+  @@index([organizationId, expiresAt], map: "organization_invites_org_id_expires_at_idx")
+  @@map("organization_invites")
 }
 
 model Project {
@@ -77,15 +119,15 @@ model Project {
 }
 
 model AlertRule {
-  id        String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  projectId String   @map("project_id") @db.Uuid
-  name      String   @db.Text
-  type      String   @db.Text
-  threshold Decimal  @db.Decimal(18, 8)
-  enabled   Boolean  @default(true)
-  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
-  updatedAt DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
-  project   Project  @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  id        String       @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  projectId String       @map("project_id") @db.Uuid
+  name      String       @db.Text
+  type      String       @db.Text
+  threshold Decimal      @db.Decimal(18, 8)
+  enabled   Boolean      @default(true)
+  createdAt DateTime     @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt DateTime     @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
+  project   Project      @relation(fields: [projectId], references: [id], onDelete: Cascade)
   events    AlertEvent[]
 
   @@index([projectId], map: "alert_rules_project_id_idx")
@@ -135,23 +177,23 @@ model ApiKey {
 }
 
 model Trace {
-  id           String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  projectId    String    @map("project_id") @db.Uuid
-  agentName    String    @map("agent_name") @db.Text
-  name         String?   @db.Text
-  status       String    @default("running") @db.Text
-  startedAt    DateTime  @map("started_at") @db.Timestamptz(6)
-  endedAt      DateTime? @map("ended_at") @db.Timestamptz(6)
-  durationMs   BigInt?   @map("duration_ms") @db.BigInt
-  inputTokens  BigInt    @default(0) @map("input_tokens") @db.BigInt
-  outputTokens BigInt    @default(0) @map("output_tokens") @db.BigInt
-  totalTokens  BigInt    @default(0) @map("total_tokens") @db.BigInt
-  totalCost    Decimal   @default(0) @map("total_cost") @db.Decimal(18, 8)
-  metadata     Json      @default("{}") @db.JsonB
-  errorType    String?   @map("error_type") @db.Text
-  errorMessage String?   @map("error_message") @db.Text
-  createdAt    DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
-  project      Project   @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  id           String       @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  projectId    String       @map("project_id") @db.Uuid
+  agentName    String       @map("agent_name") @db.Text
+  name         String?      @db.Text
+  status       String       @default("running") @db.Text
+  startedAt    DateTime     @map("started_at") @db.Timestamptz(6)
+  endedAt      DateTime?    @map("ended_at") @db.Timestamptz(6)
+  durationMs   BigInt?      @map("duration_ms") @db.BigInt
+  inputTokens  BigInt       @default(0) @map("input_tokens") @db.BigInt
+  outputTokens BigInt       @default(0) @map("output_tokens") @db.BigInt
+  totalTokens  BigInt       @default(0) @map("total_tokens") @db.BigInt
+  totalCost    Decimal      @default(0) @map("total_cost") @db.Decimal(18, 8)
+  metadata     Json         @default("{}") @db.JsonB
+  errorType    String?      @map("error_type") @db.Text
+  errorMessage String?      @map("error_message") @db.Text
+  createdAt    DateTime     @default(now()) @map("created_at") @db.Timestamptz(6)
+  project      Project      @relation(fields: [projectId], references: [id], onDelete: Cascade)
   spans        Span[]
   alertEvents  AlertEvent[]
 

@@ -6,15 +6,60 @@ export interface User {
 }
 
 export type OrganizationRole = "owner" | "admin" | "member" | "viewer";
+export type BillingPlan = "free" | "pro";
+export type SubscriptionStatus =
+  "none" | "trialing" | "active" | "past_due" | "canceled";
 
 export interface Organization {
   id: string;
   name: string;
   slug: string;
-  plan: string;
+  plan: BillingPlan;
+  subscriptionStatus: SubscriptionStatus;
   role: OrganizationRole;
   createdAt: string;
   updatedAt: string;
+}
+
+export interface OrganizationMember {
+  id: string;
+  organizationId: string;
+  role: OrganizationRole;
+  createdAt: string;
+  updatedAt: string;
+  user: Pick<User, "id" | "email" | "displayName">;
+}
+
+export interface OrganizationInvite {
+  id: string;
+  organizationId: string;
+  email: string;
+  role: "admin" | "member" | "viewer";
+  expiresAt: string;
+  acceptedAt: string | null;
+  revokedAt: string | null;
+  createdAt: string;
+  createdBy: Pick<User, "id" | "email" | "displayName">;
+}
+
+export interface BillingSummary {
+  organizationId: string;
+  plan: BillingPlan;
+  subscriptionStatus: SubscriptionStatus;
+  cancelAtPeriodEnd: boolean;
+  period: { startedAt: string; endsAt: string };
+  usage: { projects: number; members: number; traces: number };
+  entitlements: {
+    projectLimit: number | null;
+    organizationMemberLimit: number | null;
+    monthlyTraceLimit: number | null;
+    traceRetentionDays: number | null;
+  };
+  stripe: {
+    checkoutAvailable: boolean;
+    webhookConfigured: boolean;
+    portalAvailable: boolean;
+  };
 }
 
 export interface Project {

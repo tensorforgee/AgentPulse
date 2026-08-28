@@ -4,6 +4,7 @@ import { AppController } from './app.controller';
 import { AppService } from './app.service';
 import { ApiKeysModule } from './api-keys/api-keys.module';
 import { AuthModule } from './auth/auth.module';
+import { BillingModule } from './billing/billing.module';
 import { IngestionModule } from './ingestion/ingestion.module';
 import { OrganizationsModule } from './organizations/organizations.module';
 import { OperationsModule } from './operations/operations.module';
@@ -17,6 +18,7 @@ import { TracesModule } from './traces/traces.module';
     PrismaModule,
     OperationsModule,
     AuthModule,
+    BillingModule,
     OrganizationsModule,
     ProjectsModule,
     AlertRulesModule,

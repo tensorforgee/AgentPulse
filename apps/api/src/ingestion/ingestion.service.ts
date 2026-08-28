@@ -10,6 +10,12 @@ import {
   type TraceWithSpansContract,
 } from '@agentpulse/shared';
 import { Prisma } from '../generated/prisma/client';
+import { entitlementsForPlan } from '../billing/billing.types';
+import { billingPeriod } from '../billing/billing-usage.service';
+import {
+  assertPlanCapacity,
+  lockOrganizationForPlanCheck,
+} from '../billing/plan-enforcement';
 import { PrismaService } from '../prisma/prisma.service';
 import { RealtimeEventsService } from '../realtime/realtime-events.service';
 import { PostIngestProcessorService } from './post-ingest-processor.service';
@@ -27,7 +33,7 @@ export class IngestionService {
     const orderedSpans = this.orderParentsBeforeChildren(telemetry.spans);
 
     await this.prisma.$transaction(async (transaction) => {
-      const existingTrace = await transaction.trace.findUnique({
+      let existingTrace = await transaction.trace.findUnique({
         where: { id: telemetry.id },
         select: { projectId: true },
       });
@@ -36,6 +42,50 @@ export class IngestionService {
         throw new ConflictException(
           'Trace ID already belongs to another project',
         );
+      }
+
+      if (!existingTrace) {
+        const project = await transaction.project.findUniqueOrThrow({
+          where: { id: projectId },
+          select: {
+            organizationId: true,
+            organization: {
+              select: {
+                plan: true,
+                billingPeriodStartedAt: true,
+                billingPeriodEndsAt: true,
+              },
+            },
+          },
+        });
+        const limit = entitlementsForPlan(
+          project.organization.plan,
+        ).monthlyTraceLimit;
+        if (limit !== null) {
+          await lockOrganizationForPlanCheck(
+            transaction,
+            project.organizationId,
+          );
+          existingTrace = await transaction.trace.findUnique({
+            where: { id: telemetry.id },
+            select: { projectId: true },
+          });
+          if (existingTrace && existingTrace.projectId !== projectId) {
+            throw new ConflictException(
+              'Trace ID already belongs to another project',
+            );
+          }
+          if (!existingTrace) {
+            const period = billingPeriod(project.organization, new Date());
+            const traceCount = await transaction.trace.count({
+              where: {
+                project: { organizationId: project.organizationId },
+                createdAt: { gte: period.startedAt, lt: period.endsAt },
+              },
+            });
+            assertPlanCapacity('monthly_traces', traceCount, limit);
+          }
+        }
       }
 
       const spanIds = orderedSpans.map((span) => span.id);

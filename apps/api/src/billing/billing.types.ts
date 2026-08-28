@@ -17,7 +17,14 @@ export interface PlanEntitlements {
   readonly traceRetentionDays: number | null;
 }
 
-const CURRENT_UNENFORCED_ENTITLEMENTS = Object.freeze({
+const FREE_ENTITLEMENTS = Object.freeze({
+  projectLimit: 1,
+  organizationMemberLimit: 3,
+  monthlyTraceLimit: 10_000,
+  traceRetentionDays: null,
+}) satisfies PlanEntitlements;
+
+const PRO_ENTITLEMENTS = Object.freeze({
   projectLimit: null,
   organizationMemberLimit: null,
   monthlyTraceLimit: null,
@@ -25,13 +32,12 @@ const CURRENT_UNENFORCED_ENTITLEMENTS = Object.freeze({
 }) satisfies PlanEntitlements;
 
 /**
- * The single source of truth for plan entitlements. A null limit means the
- * capability remains unenforced, preserving existing behavior until product
- * limits are explicitly defined and enforcement is added.
+ * The single source of truth for plan entitlements. A null limit always means
+ * unlimited and must bypass enforcement.
  */
 export const PLAN_ENTITLEMENTS = Object.freeze({
-  [BillingPlan.free]: CURRENT_UNENFORCED_ENTITLEMENTS,
-  [BillingPlan.pro]: CURRENT_UNENFORCED_ENTITLEMENTS,
+  [BillingPlan.free]: FREE_ENTITLEMENTS,
+  [BillingPlan.pro]: PRO_ENTITLEMENTS,
 }) satisfies Readonly<Record<BillingPlan, PlanEntitlements>>;
 
 export function isBillingPlan(value: string): value is BillingPlan {

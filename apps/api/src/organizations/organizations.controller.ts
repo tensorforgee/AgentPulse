@@ -2,6 +2,8 @@ import {
   Body,
   Controller,
   Get,
+  NotFoundException,
+  Patch,
   Post,
   Req,
   UnauthorizedException,
@@ -11,8 +13,13 @@ import { AccessTokenGuard } from '../auth/access-token.guard';
 import type { AuthenticatedRequest } from '../auth/auth.types';
 import { CreateOrganizationDto } from './dto/create-organization.dto';
 import { OrganizationMembershipGuard } from './organization-membership.guard';
+import {
+  ORGANIZATION_MANAGEMENT_ROLES,
+  RequireOrganizationRoles,
+} from './organization-role.utils';
 import type { OrganizationAuthorizedRequest } from './organization.types';
 import { OrganizationsService } from './organizations.service';
+import { UpdateOrganizationDto } from './dto/update-organization.dto';
 
 function authenticatedUserId(request: AuthenticatedRequest): string {
   if (!request.authUserId) {
@@ -51,5 +58,23 @@ export class OrganizationsController {
       ...request.organizationAccess.organization,
       role: request.organizationAccess.role,
     };
+  }
+
+  @Patch(':organizationId')
+  @UseGuards(OrganizationMembershipGuard)
+  @RequireOrganizationRoles(...ORGANIZATION_MANAGEMENT_ROLES)
+  update(
+    @Req() request: OrganizationAuthorizedRequest,
+    @Body() dto: UpdateOrganizationDto,
+  ) {
+    const access = request.organizationAccess;
+    if (!access) {
+      throw new NotFoundException('Organization not found');
+    }
+    return this.organizationsService.update(
+      access.organization.id,
+      access.role,
+      dto,
+    );
   }
 }
