@@ -8,9 +8,10 @@ import type { User } from "@/lib/types";
 
 interface AuthFormProps {
   mode: "login" | "signup";
+  redirectTo?: string;
 }
 
-export function AuthForm({ mode }: AuthFormProps) {
+export function AuthForm({ mode, redirectTo = "/app" }: AuthFormProps) {
   const router = useRouter();
   const isSignup = mode === "signup";
   const [displayName, setDisplayName] = useState("");
@@ -33,7 +34,7 @@ export function AuthForm({ mode }: AuthFormProps) {
           ...(isSignup && displayName.trim() ? { displayName } : {}),
         }),
       });
-      router.push("/app");
+      router.push(redirectTo);
       router.refresh();
     } catch (caught) {
       setError(caught instanceof Error ? caught.message : "Authentication failed");
@@ -150,7 +151,11 @@ export function AuthForm({ mode }: AuthFormProps) {
           <p className="mt-7 text-center text-sm text-slate-500">
             {isSignup ? "Already have an account?" : "New to AgentPulse?"}{" "}
             <Link
-              href={isSignup ? "/login" : "/signup"}
+              href={`${isSignup ? "/login" : "/signup"}${
+                redirectTo === "/app"
+                  ? ""
+                  : `?next=${encodeURIComponent(redirectTo)}`
+              }`}
               className="font-semibold text-indigo-600 hover:text-indigo-700"
             >
               {isSignup ? "Sign in" : "Create an account"}

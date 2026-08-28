@@ -23,10 +23,9 @@ interface WorkspaceContextValue {
   error: string;
   selectOrganization: (organizationId: string) => Promise<void>;
   selectProject: (projectId: string) => void;
-  createOrganization: (input: {
-    name: string;
-    slug: string;
-  }) => Promise<void>;
+  refreshOrganizations: () => Promise<void>;
+  replaceOrganization: (organization: Organization) => void;
+  createOrganization: (input: { name: string; slug: string }) => Promise<void>;
   createProject: (input: {
     name: string;
     slug: string;
@@ -67,7 +66,9 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
           : (result[0]?.id ?? ""),
       );
     } catch (caught) {
-      setError(caught instanceof Error ? caught.message : "Could not load projects");
+      setError(
+        caught instanceof Error ? caught.message : "Could not load projects",
+      );
       setProjects([]);
       setSelectedProjectId("");
     } finally {
@@ -116,6 +117,22 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
     setSelectedProjectId(projectId);
   }
 
+  async function refreshOrganizations() {
+    const result = await requestJson<Organization[]>("/api/organizations");
+    setOrganizations(result);
+    setSelectedOrganizationId((current) =>
+      result.some(({ id }) => id === current) ? current : (result[0]?.id ?? ""),
+    );
+  }
+
+  function replaceOrganization(organization: Organization) {
+    setOrganizations((current) =>
+      current.map((item) =>
+        item.id === organization.id ? organization : item,
+      ),
+    );
+  }
+
   async function createOrganization(input: { name: string; slug: string }) {
     setError("");
     const organization = await requestJson<Organization>("/api/organizations", {
@@ -132,7 +149,8 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
     slug: string;
     description?: string;
   }) {
-    if (!selectedOrganizationId) throw new Error("Select an organization first");
+    if (!selectedOrganizationId)
+      throw new Error("Select an organization first");
     setError("");
     const project = await requestJson<Project>(
       `/api/organizations/${selectedOrganizationId}/projects`,
@@ -164,6 +182,8 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
     error,
     selectOrganization,
     selectProject,
+    refreshOrganizations,
+    replaceOrganization,
     createOrganization,
     createProject,
     logout,

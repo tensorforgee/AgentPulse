@@ -4,6 +4,7 @@ import { Test, TestingModule } from '@nestjs/testing';
 import request from 'supertest';
 import { App } from 'supertest/types';
 import { AppModule } from './../src/app.module';
+import { BillingPlan } from './../src/generated/prisma/enums';
 import { PrismaService } from './../src/prisma/prisma.service';
 
 type Role = 'owner' | 'admin' | 'member' | 'viewer';
@@ -76,6 +77,13 @@ describe('V1 organization RBAC (e2e)', () => {
           .expect(201)
       ).body as IdResponse
     ).id;
+
+    // This suite exercises RBAC across repeated resource creation. Keep plan
+    // enforcement orthogonal; Phase 4 limit behavior has dedicated coverage.
+    await prisma.organization.update({
+      where: { id: organizationId },
+      data: { plan: BillingPlan.pro },
+    });
 
     await prisma.organizationMember.createMany({
       data: (['admin', 'member', 'viewer'] as const).map((role) => ({

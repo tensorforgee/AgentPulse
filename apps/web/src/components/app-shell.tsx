@@ -9,6 +9,8 @@ const navigation = [
   { href: "/app", label: "Workspace", exact: true },
   { href: "/app/runs", label: "Runs", exact: false },
   { href: "/app/api-keys", label: "API keys", exact: false },
+  { href: "/app/settings", label: "Settings", exact: false },
+  { href: "/app/billing", label: "Billing", exact: false },
 ];
 
 export function AppShell({ children }: { children: ReactNode }) {
@@ -98,7 +100,9 @@ export function AppShell({ children }: { children: ReactNode }) {
                     !workspace.selectedOrganization || workspace.loadingProjects
                   }
                   aria-busy={workspace.loadingProjects}
-                  onChange={(event) => workspace.selectProject(event.target.value)}
+                  onChange={(event) =>
+                    workspace.selectProject(event.target.value)
+                  }
                   className="mt-1.5 block w-full min-w-0 rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm font-medium normal-case tracking-normal text-slate-800 disabled:bg-slate-100 sm:min-w-52"
                 >
                   {workspace.projects.length === 0 ? (
@@ -119,7 +123,10 @@ export function AppShell({ children }: { children: ReactNode }) {
                 <p className="truncate text-sm font-semibold">
                   {workspace.user.displayName ?? "AgentPulse user"}
                 </p>
-                <p className="truncate text-xs text-slate-500" title={workspace.user.email}>
+                <p
+                  className="truncate text-xs text-slate-500"
+                  title={workspace.user.email}
+                >
                   {workspace.user.email}
                 </p>
               </div>
