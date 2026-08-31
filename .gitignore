@@ -21,6 +21,7 @@ dist/
 
 # Testing / coverage
 coverage/
+.tmp-sdk-consumer/
 
 # OS files
 .DS_Store

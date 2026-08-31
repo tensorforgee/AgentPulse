@@ -43,8 +43,9 @@ source of truth for persistence.
 
 - Project-scoped ingestion keys with one-time plaintext visibility, digest
   storage, expiry support, usage tracking, and revocation.
-- A manual TypeScript SDK for nested agent, retrieval, tool, LLM, and custom
-  spans with status, timing, tokens, estimated cost, input/output, and errors.
+- A TypeScript SDK for nested agent, retrieval, tool, LLM, and custom spans,
+  plus one thin non-streaming OpenAI-compatible chat-completion helper built on
+  the same trace/span lifecycle.
 - Validated, transactional `POST /v1/ingest` persistence with tenant isolation
   and idempotent trace/span upserts.
 - A responsive runs dashboard with aggregate metrics, filters, pagination,
@@ -82,7 +83,7 @@ optional alert-rule demonstration.
 apps/web/                     Next.js dashboard and server-side API proxy
 apps/api/                     NestJS API, Prisma schema, and migrations
 packages/shared/              Telemetry contracts and validation
-packages/sdk/                 Manual-instrumentation TypeScript SDK
+packages/sdk/                 TypeScript SDK and OpenAI-compatible helper
 examples/demo-agent/          Deterministic success/failure demo
 examples/support-rag-agent/   Realistic support RAG instrumentation example
 deploy/                       Production Compose and Caddy configuration
@@ -124,6 +125,10 @@ Install the SDK in your server-side Node.js application:
 ```powershell
 pnpm add @agentpulse/sdk
 ```
+
+Use this registry command only after the requested version has completed the
+documented release gate and is visible in your configured npm registry. This
+repository does not claim that the current package version has been published.
 
 ```ts
 import { AgentPulse } from "@agentpulse/sdk";
@@ -169,10 +174,12 @@ troubleshooting.
 | Guide                                                       | Use it for                                                                            |
 | ----------------------------------------------------------- | ------------------------------------------------------------------------------------- |
 | [Getting started](docs/getting-started.md)                  | Local setup, project keys, SDK instrumentation, ingest reference, and troubleshooting |
+| [SDK API](docs/sdk-api.md)                                  | Public types, lifecycle helpers, validation, timeout, retries, and errors               |
 | [Architecture](docs/architecture.md)                        | Implemented services, trust boundaries, storage, alerts, realtime updates, and RCA    |
 | [Support RAG example](examples/support-rag-agent/README.md) | A runnable success/failure integration with nested spans                              |
 | [Reviewer demo](docs/demo.md)                               | Deterministic end-to-end dashboard verification                                       |
 | [Deployment](docs/deployment.md)                            | Production variables, migrations, health checks, Compose, TLS, and operations         |
+| [SDK release](docs/sdk-release.md)                          | Versioning, package inspection, dry runs, and controlled npm publishing                |
 | [Database design background](docs/database-schema.md)       | Historical Month 1 schema rationale; Prisma is authoritative for the current schema   |
 
 ## Repository checks

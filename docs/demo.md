@@ -185,7 +185,8 @@ Run the success and failure commands within five minutes. In a fresh project,
 the failed ingestion evaluates the two completed traces at a 50% error rate,
 meeting the `0.5` threshold. **Triggered alerts** then shows `Demo error rate`,
 the observed and threshold values, and `Webhook: not configured` unless the
-project has an HTTPS webhook mapping in `ALERT_WEBHOOK_URLS_JSON`.
+project has either a signed webhook configured through the project API or an
+HTTPS fallback mapping in `ALERT_WEBHOOK_URLS_JSON`.
 
 This optional API setup demonstrates implemented alert evaluation and
 persistence. It does not imply that rule management exists in the current UI.

@@ -64,15 +64,85 @@ The API also accepts optional configuration groups:
   `STRIPE_PRO_PRICE_ID`. Configure all three to enable hosted Checkout,
   signed subscription webhooks, and the customer portal. When unset, usage
   remains available while upgrade and management actions fail closed.
-- Alert delivery: `ALERT_WEBHOOK_URLS_JSON`, a JSON object mapping project IDs
-  to HTTPS webhook URLs. Alert creation and ingestion continue if this setting
-  is absent, invalid, or a delivery fails.
+- Alert delivery: `ALERT_WEBHOOK_ENCRYPTION_KEY`, a base64-encoded 32-byte key
+  used to encrypt per-project signing secrets. Generate it with
+  `node -e "console.log(require('node:crypto').randomBytes(32).toString('base64'))"`.
+  `ALERT_WEBHOOK_URLS_JSON` remains an optional unsigned fallback for existing
+  deployments that map project IDs to HTTPS webhook URLs.
 
 Webhook URLs, provider keys, JWT secrets, and `DATABASE_URL` are secrets. Keep
 them in the hosting platform's secret manager even though some are optional.
 Production webhook and RCA provider URLs must use HTTPS, cannot embed URL
 credentials, and must not rely on redirects. Plain HTTP remains available only
 for local development and test endpoints.
+
+An organization owner or admin can configure the selected project's webhook
+through the authenticated project API:
+
+```http
+PUT /projects/{projectId}/alert-webhook
+Content-Type: application/json
+
+{"url":"https://hooks.example.com/agentpulse"}
+```
+
+The response contains the signing secret once. Store it in the receiver's
+secret manager; later `GET` responses report the URL and source without
+returning the secret. `POST /projects/{projectId}/alert-webhook/test` sends a
+signed test event, and `DELETE /projects/{projectId}/alert-webhook` removes the
+configuration. These endpoints use the existing project tenant guard and are
+limited to organization owners and admins.
+
+In production, tenant webhook URLs must use HTTPS, cannot contain credentials,
+and cannot resolve to loopback, private, link-local, or cloud metadata targets.
+URLs are checked on configuration and again before delivery. Redirects are not
+followed.
+
+The legacy environment fallback uses a single JSON value (keep the outer
+environment-variable quotes required by your hosting platform):
+
+```json
+{
+  "7cb34107-8c31-4c33-af45-c7e33c123fb0": "https://hooks.example.com/agentpulse/project-token"
+}
+```
+
+AgentPulse sends one `POST` with `Content-Type: application/json` and a
+three-second timeout. Project-configured deliveries include
+`X-AgentPulse-Timestamp` (Unix seconds) and `X-AgentPulse-Signature`, formatted
+as `v1=<hex HMAC-SHA256>`. Verify the signature against the exact request body
+using the message `<timestamp>.<body>` and reject stale timestamps. The body is
+compatible with receivers that accept a Slack-style `text` field and also
+contains the structured event:
+
+```json
+{
+  "text": "[AgentPulse] High cost triggered: cost observed 2 (threshold 1)",
+  "agentpulse": {
+    "id": "1e399dc9-34de-446b-912f-5fc719b018fc",
+    "projectId": "7cb34107-8c31-4c33-af45-c7e33c123fb0",
+    "alertRuleId": "39cc1c3e-5519-4057-a2da-bb480e10c2c7",
+    "traceId": "6ca54026-bf99-43ad-91d9-fd6f9ab2a945",
+    "ruleName": "High cost",
+    "ruleType": "cost",
+    "threshold": "1",
+    "observedValue": "2",
+    "windowStartedAt": "2026-08-21T10:00:00.000Z",
+    "windowEndedAt": "2026-08-21T10:05:00.000Z",
+    "deliveryStatus": "pending",
+    "deliveryAttemptedAt": null,
+    "deliveryError": null,
+    "createdAt": "2026-08-21T10:05:00.000Z"
+  }
+}
+```
+
+Alert-event API responses expose `deliveryStatus`, `deliveryAttemptedAt`, and a
+sanitized `deliveryError`. Invalid per-project URLs are recorded as
+`not_configured`; request failures are `failed`; successful 2xx responses are
+`delivered`. Legacy `ALERT_WEBHOOK_URLS_JSON` deliveries remain unsigned for
+backwards compatibility; migrate them through the project API to enable
+signatures. No authorization header is added.
 
 ### Web
 

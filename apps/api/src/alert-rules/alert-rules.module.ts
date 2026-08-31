@@ -11,11 +11,13 @@ import {
 import { AlertEventsService } from './alert-events.service';
 import { AlertDeliveryService } from './alert-delivery.service';
 import { AlertEvaluationService } from './alert-evaluation.service';
+import { AlertWebhookService } from './alert-webhook.service';
 import {
   AlertRulesController,
   ProjectAlertRulesController,
 } from './alert-rules.controller';
 import { AlertRulesService } from './alert-rules.service';
+import { ProjectAlertWebhookController } from './project-alert-webhook.controller';
 
 @Module({
   imports: [
@@ -30,12 +32,14 @@ import { AlertRulesService } from './alert-rules.service';
     AlertRulesController,
     ProjectAlertEventsController,
     AlertEventsController,
+    ProjectAlertWebhookController,
   ],
   providers: [
     AlertRulesService,
     AlertEventsService,
     AlertDeliveryService,
     AlertEvaluationService,
+    AlertWebhookService,
   ],
   exports: [AlertEvaluationService],
 })

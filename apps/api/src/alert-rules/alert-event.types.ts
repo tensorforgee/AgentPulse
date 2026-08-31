@@ -13,6 +13,7 @@ export const alertEventSelect = {
   windowEndedAt: true,
   deliveryStatus: true,
   deliveryAttemptedAt: true,
+  deliveryError: true,
   createdAt: true,
 } satisfies Prisma.AlertEventSelect;
 
@@ -34,6 +35,7 @@ export function serializeAlertEvent(record: AlertEventRecord) {
     windowEndedAt: record.windowEndedAt.toISOString(),
     deliveryStatus: record.deliveryStatus,
     deliveryAttemptedAt: record.deliveryAttemptedAt?.toISOString() ?? null,
+    deliveryError: record.deliveryError,
     createdAt: record.createdAt.toISOString(),
   };
 }
