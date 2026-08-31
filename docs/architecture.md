@@ -120,7 +120,10 @@ Enabled alert rules are evaluated from persisted completed traces in the
 five-minute window ending at the ingested trace's start time. Supported rule
 types are error rate, average latency, and total cost. Triggered events are
 persisted before optional webhook delivery. Delivery configuration maps project
-IDs to HTTPS URLs through `ALERT_WEBHOOK_URLS_JSON`.
+IDs to HTTPS URLs through `ALERT_WEBHOOK_URLS_JSON`. Project owners and admins
+can instead configure one signed project webhook through the tenant-scoped API;
+its secret is encrypted at rest and tenant-controlled URLs are validated
+against production SSRF targets before delivery.
 
 The in-process SSE channel publishes `telemetry.ingested` and
 `alert.triggered`; it also sends heartbeats. It is a dashboard optimization,

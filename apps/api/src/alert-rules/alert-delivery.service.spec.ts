@@ -1,8 +1,12 @@
 import { Logger } from '@nestjs/common';
 import { Prisma } from '../generated/prisma/client';
 import type { PrismaService } from '../prisma/prisma.service';
-import type { AlertEventRecord } from './alert-event.types';
 import { AlertDeliveryService } from './alert-delivery.service';
+import type { AlertEventRecord } from './alert-event.types';
+import type {
+  AlertWebhookService,
+  WebhookDeliveryResult,
+} from './alert-webhook.service';
 
 type UpdateAlertEvent = (input: {
   data: {
@@ -27,85 +31,89 @@ describe('AlertDeliveryService', () => {
     windowEndedAt: new Date('2026-08-21T10:05:00.000Z'),
     deliveryStatus: 'pending',
     deliveryAttemptedAt: null,
+    deliveryError: null,
     createdAt: new Date('2026-08-21T10:05:00.000Z'),
   } satisfies AlertEventRecord;
-  const originalConfig = process.env.ALERT_WEBHOOK_URLS_JSON;
-  const originalNodeEnvironment = process.env.NODE_ENV;
   let update: jest.MockedFunction<UpdateAlertEvent>;
+  let deliver: jest.MockedFunction<
+    (projectId: string, payload: unknown) => Promise<WebhookDeliveryResult>
+  >;
   let service: AlertDeliveryService;
 
   beforeEach(() => {
-    process.env.ALERT_WEBHOOK_URLS_JSON = JSON.stringify({
-      [projectId]: 'http://mock.local/agentpulse',
-    });
     update = jest.fn(({ data }) =>
       Promise.resolve({
         ...event,
         deliveryStatus: data.deliveryStatus,
         deliveryAttemptedAt: data.deliveryAttemptedAt,
+        deliveryError: data.deliveryError,
       }),
     );
-    service = new AlertDeliveryService({
-      alertEvent: { update },
-    } as unknown as PrismaService);
+    deliver = jest.fn(() =>
+      Promise.resolve({
+        status: 'delivered',
+        attemptedAt: new Date('2026-08-21T10:05:01.000Z'),
+        error: null,
+      }),
+    );
+    service = new AlertDeliveryService(
+      { alertEvent: { update } } as unknown as PrismaService,
+      { deliver } as unknown as AlertWebhookService,
+    );
     jest.spyOn(Logger.prototype, 'warn').mockImplementation(() => undefined);
   });
 
   afterEach(() => {
     jest.restoreAllMocks();
-    if (originalConfig === undefined) {
-      delete process.env.ALERT_WEBHOOK_URLS_JSON;
-    } else {
-      process.env.ALERT_WEBHOOK_URLS_JSON = originalConfig;
-    }
-    if (originalNodeEnvironment === undefined) {
-      delete process.env.NODE_ENV;
-    } else {
-      process.env.NODE_ENV = originalNodeEnvironment;
-    }
   });
 
-  it('sends a Slack-compatible payload and records success', async () => {
-    const fetchMock = jest
-      .spyOn(global, 'fetch')
-      .mockResolvedValue({ ok: true, status: 200 } as Response);
-
+  it('passes the existing structured payload to webhook delivery and records success', async () => {
     const delivered = await service.deliver(event);
 
-    expect(fetchMock).toHaveBeenCalledWith(
-      'http://mock.local/agentpulse',
-      expect.objectContaining({ method: 'POST' }),
-    );
-    const requestBody = fetchMock.mock.calls[0][1]?.body;
-    expect(typeof requestBody).toBe('string');
-    const payload = JSON.parse(
-      typeof requestBody === 'string' ? requestBody : '{}',
-    ) as Record<string, unknown>;
+    expect(deliver).toHaveBeenCalledTimes(1);
+    expect(deliver.mock.calls[0]?.[0]).toBe(projectId);
+    const payload = deliver.mock.calls[0]?.[1] as {
+      text: string;
+      agentpulse: Record<string, unknown>;
+    };
     expect(payload.text).toContain('[AgentPulse] High cost triggered');
-    expect(payload.agentpulse).toBeDefined();
+    expect(payload.agentpulse).toMatchObject({
+      id: event.id,
+      projectId,
+      traceId: event.traceId,
+      deliveryStatus: 'pending',
+      deliveryError: null,
+    });
     expect(delivered.deliveryStatus).toBe('delivered');
   });
 
-  it('records a sanitized failure without throwing', async () => {
-    jest
-      .spyOn(global, 'fetch')
-      .mockRejectedValue(new Error('secret URL failed'));
+  it('persists sanitized delivery failures without throwing', async () => {
+    deliver.mockResolvedValue({
+      status: 'failed',
+      attemptedAt: new Date('2026-08-21T10:05:01.000Z'),
+      error: 'Request failed',
+    });
 
     await expect(service.deliver(event)).resolves.toMatchObject({
       deliveryStatus: 'failed',
+      deliveryError: 'Request failed',
     });
     expect(update.mock.calls.at(-1)?.[0].data.deliveryError).toBe(
       'Request failed',
     );
   });
 
-  it('does not deliver to plaintext HTTP webhooks in production', async () => {
-    process.env.NODE_ENV = 'production';
-    const fetchMock = jest.spyOn(global, 'fetch');
+  it('records missing or invalid configuration diagnostics', async () => {
+    deliver.mockResolvedValue({
+      status: 'not_configured',
+      attemptedAt: null,
+      error: 'ALERT_WEBHOOK_URLS_JSON contains invalid JSON',
+    });
 
     await expect(service.deliver(event)).resolves.toMatchObject({
       deliveryStatus: 'not_configured',
+      deliveryAttemptedAt: null,
+      deliveryError: 'ALERT_WEBHOOK_URLS_JSON contains invalid JSON',
     });
-    expect(fetchMock).not.toHaveBeenCalled();
   });
 });

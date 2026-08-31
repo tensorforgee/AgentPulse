@@ -100,18 +100,20 @@ model OrganizationInvite {
 }
 
 model Project {
-  id             String       @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  organizationId String       @map("org_id") @db.Uuid
-  name           String       @db.Text
-  slug           String       @db.VarChar(100)
-  description    String?      @db.Text
-  createdAt      DateTime     @default(now()) @map("created_at") @db.Timestamptz(6)
-  updatedAt      DateTime     @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
-  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
-  apiKeys        ApiKey[]
-  alertRules     AlertRule[]
-  alertEvents    AlertEvent[]
-  traces         Trace[]
+  id                          String       @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  organizationId              String       @map("org_id") @db.Uuid
+  name                        String       @db.Text
+  slug                        String       @db.VarChar(100)
+  description                 String?      @db.Text
+  alertWebhookUrl             String?      @map("alert_webhook_url") @db.Text
+  alertWebhookSecretEncrypted String?      @map("alert_webhook_secret_encrypted") @db.Text
+  createdAt                   DateTime     @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt                   DateTime     @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
+  organization                Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  apiKeys                     ApiKey[]
+  alertRules                  AlertRule[]
+  alertEvents                 AlertEvent[]
+  traces                      Trace[]
 
   @@unique([organizationId, slug], map: "projects_org_id_slug_key")
   @@index([organizationId], map: "projects_org_id_idx")

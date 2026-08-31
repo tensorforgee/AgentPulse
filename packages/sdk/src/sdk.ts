@@ -1,5 +1,6 @@
 import {
   assertTraceWithSpansContract,
+  SPAN_TYPES,
   type DecimalString,
   type JsonObject,
   type JsonValue,
@@ -9,11 +10,31 @@ import {
   type TraceWithSpansContract,
 } from "@agentpulse/shared";
 
+export type {
+  DecimalString,
+  JsonObject,
+  JsonValue,
+  SpanType,
+} from "@agentpulse/shared";
+
 const AUTHENTICATED_PROJECT_PLACEHOLDER =
   "00000000-0000-0000-0000-000000000000";
 
-type FinishedStatus = "success" | "failed";
-type TimestampInput = string | Date;
+export type FinishedStatus = "success" | "failed";
+export type TimestampInput = string | Date;
+const FINISHED_STATUSES = ["success", "failed"] as const;
+const TIMESTAMP_TIMEZONE_PATTERN = /(?:Z|[+-]\d{2}:\d{2})$/;
+const DEFAULT_REQUEST_TIMEOUT_MS = 10_000;
+const DEFAULT_MAX_RETRIES = 2;
+const DEFAULT_RETRY_DELAY_MS = 100;
+const MAX_RETRIES = 5;
+const MAX_RETRY_DELAY_MS = 10_000;
+
+export interface AgentPulseOptions {
+  readonly requestTimeoutMs?: number;
+  readonly maxRetries?: number;
+  readonly retryDelayMs?: number;
+}
 
 export type IngestPayload = Omit<TraceWithSpansContract, "projectId">;
 
@@ -146,43 +167,82 @@ export class AgentPulseValidationError extends AgentPulseError {
 }
 
 export class AgentPulseRequestError extends AgentPulseError {
-  constructor() {
-    super("Unable to reach the AgentPulse ingestion endpoint");
+  readonly attempts: number;
+  readonly retryable = true;
+
+  constructor(attempts = 1) {
+    super(
+      `Unable to reach the AgentPulse ingestion endpoint after ${attempts} attempt${attempts === 1 ? "" : "s"}`,
+    );
     this.name = "AgentPulseRequestError";
+    this.attempts = attempts;
   }
 }
 
 export class AgentPulseIngestError extends AgentPulseError {
   readonly status: number;
+  readonly attempts: number;
+  readonly retryable: boolean;
 
-  constructor(status: number) {
-    super(`AgentPulse ingestion failed with HTTP status ${status}`);
+  constructor(status: number, attempts = 1) {
+    super(
+      `AgentPulse ingestion failed with HTTP status ${status} after ${attempts} attempt${attempts === 1 ? "" : "s"}`,
+    );
     this.name = "AgentPulseIngestError";
     this.status = status;
+    this.attempts = attempts;
+    this.retryable = isRetryableStatus(status);
   }
 }
 
 export class AgentPulse {
   readonly #apiKey: string;
   readonly #ingestUrl: string;
+  readonly #requestTimeoutMs: number;
+  readonly #maxRetries: number;
+  readonly #retryDelayMs: number;
   readonly #traces = new WeakMap<AgentPulseTrace, TraceState>();
   readonly #spans = new WeakMap<AgentPulseSpan, SpanState>();
 
-  constructor(apiKey: string, baseUrl: string) {
+  constructor(apiKey: string, baseUrl: string, options: AgentPulseOptions = {}) {
     if (typeof apiKey !== "string" || apiKey.trim() === "") {
       throw new AgentPulseValidationError("apiKey must be a non-empty string");
     }
+    requireOptionsObject(options, "AgentPulse options");
 
     this.#apiKey = apiKey;
     this.#ingestUrl = ingestionUrl(baseUrl);
+    this.#requestTimeoutMs = boundedInteger(
+      options.requestTimeoutMs,
+      DEFAULT_REQUEST_TIMEOUT_MS,
+      1,
+      Number.MAX_SAFE_INTEGER,
+      "requestTimeoutMs",
+    );
+    this.#maxRetries = boundedInteger(
+      options.maxRetries,
+      DEFAULT_MAX_RETRIES,
+      0,
+      MAX_RETRIES,
+      "maxRetries",
+    );
+    this.#retryDelayMs = boundedInteger(
+      options.retryDelayMs,
+      DEFAULT_RETRY_DELAY_MS,
+      0,
+      MAX_RETRY_DELAY_MS,
+      "retryDelayMs",
+    );
   }
 
   startTrace(options: StartTraceOptions): AgentPulseTrace {
-    if (!options || typeof options.agentName !== "string") {
-      throw new AgentPulseValidationError("agentName is required");
+    if (!options || typeof options !== "object") {
+      throw new AgentPulseValidationError("Trace options are required");
     }
+    requireNonEmptyString(options.agentName, "agentName");
+    optionalNonEmptyString(options.name, "name");
 
-    const startedAt = timestamp(options.startedAt);
+    const startedAt = timestamp(options.startedAt, "startedAt");
     const handle = Object.freeze({
       id: options.id ?? secureUuid(),
       startedAt,
@@ -207,6 +267,15 @@ export class AgentPulse {
         "Cannot start a span after its trace has ended",
       );
     }
+    if (!options || typeof options !== "object") {
+      throw new AgentPulseValidationError("Span options are required");
+    }
+    if (!(SPAN_TYPES as readonly unknown[]).includes(options.type)) {
+      throw new AgentPulseValidationError(
+        `type must be one of ${SPAN_TYPES.join(", ")}`,
+      );
+    }
+    requireNonEmptyString(options.name, "name");
 
     const id = options.id ?? secureUuid();
     if (traceState.spans.some((span) => span.handle.id === id)) {
@@ -224,7 +293,7 @@ export class AgentPulse {
       );
     }
 
-    const startedAt = timestamp(options.startedAt);
+    const startedAt = timestamp(options.startedAt, "startedAt");
     const handle = Object.freeze({
       id,
       traceId: trace.id,
@@ -258,8 +327,10 @@ export class AgentPulse {
     if (state.completed) {
       throw new AgentPulseValidationError("Span has already ended");
     }
+    requireOptionsObject(options, "End span options");
+    optionalFinishedStatus(options.status);
 
-    const endedAt = timestamp(options.endedAt);
+    const endedAt = timestamp(options.endedAt, "endedAt");
     if (Object.prototype.hasOwnProperty.call(options, "input")) {
       state.input = options.input;
     }
@@ -296,11 +367,85 @@ export class AgentPulse {
     return span;
   }
 
+  async withSpan<T>(
+    trace: AgentPulseTrace,
+    options: StartSpanOptions,
+    operation: (span: AgentPulseSpan) => T | Promise<T>,
+    endOptions: EndSpanOptions = {},
+  ): Promise<T> {
+    if (typeof operation !== "function") {
+      throw new AgentPulseValidationError("Span operation must be a function");
+    }
+    const span = this.startSpan(trace, options);
+
+    let result: T;
+    try {
+      result = await operation(span);
+    } catch (error) {
+      if (!this.#spans.get(span)?.completed) {
+        try {
+          this.endSpan(span, spanFailureOptions(error));
+        } catch {
+          // Preserve the operation error if telemetry lifecycle cleanup fails.
+        }
+      }
+      throw error;
+    }
+
+    if (!this.#spans.get(span)?.completed) {
+      this.endSpan(span, endOptions);
+    }
+    return result;
+  }
+
+  async withTrace<T>(
+    options: StartTraceOptions,
+    operation: (trace: AgentPulseTrace) => T | Promise<T>,
+    endOptions: EndTraceOptions = {},
+  ): Promise<T> {
+    if (typeof operation !== "function") {
+      throw new AgentPulseValidationError("Trace operation must be a function");
+    }
+    const trace = this.startTrace(options);
+    const state = this.#requireTrace(trace);
+
+    let result: T;
+    try {
+      result = await operation(trace);
+    } catch (error) {
+      const spanFailure = spanFailureOptions(error);
+      for (const span of state.spans) {
+        if (!span.completed) {
+          try {
+            this.endSpan(span.handle, spanFailure);
+          } catch {
+            // Preserve the operation error if span cleanup fails.
+          }
+        }
+      }
+      if (!state.completed) {
+        try {
+          await this.endTrace(trace, traceFailureOptions(error));
+        } catch {
+          // Preserve the operation error if telemetry delivery fails.
+        }
+      }
+      throw error;
+    }
+
+    if (!state.completed) {
+      await this.endTrace(trace, endOptions);
+    }
+    return result;
+  }
+
   async endTrace(
     trace: AgentPulseTrace,
     options: EndTraceOptions = {},
   ): Promise<IngestResponse> {
     const state = this.#requireTrace(trace);
+    requireOptionsObject(options, "End trace options");
+    optionalFinishedStatus(options.status);
 
     if (!state.completed) {
       if (state.spans.some((span) => !span.completed)) {
@@ -309,7 +454,7 @@ export class AgentPulse {
         );
       }
 
-      const endedAt = timestamp(options.endedAt);
+      const endedAt = timestamp(options.endedAt, "endedAt");
       const inputTokens =
         options.inputTokens ??
         sumNumbers(state.spans.map((span) => span.completed!.inputTokens));
@@ -394,22 +539,42 @@ export class AgentPulse {
   }
 
   async #send(payload: IngestPayload): Promise<IngestResponse> {
-    let response: Response;
-    try {
-      response = await fetch(this.#ingestUrl, {
-        method: "POST",
-        headers: {
-          authorization: `Bearer ${this.#apiKey}`,
-          "content-type": "application/json",
-        },
-        body: JSON.stringify(payload),
-      });
-    } catch {
-      throw new AgentPulseRequestError();
+    const requestBody = JSON.stringify(payload);
+    const maximumAttempts = this.#maxRetries + 1;
+    let response: Response | undefined;
+
+    for (let attempt = 1; attempt <= maximumAttempts; attempt += 1) {
+      try {
+        response = await fetch(this.#ingestUrl, {
+          method: "POST",
+          headers: {
+            authorization: `Bearer ${this.#apiKey}`,
+            "content-type": "application/json",
+          },
+          body: requestBody,
+          signal: AbortSignal.timeout(this.#requestTimeoutMs),
+        });
+      } catch {
+        if (attempt < maximumAttempts) {
+          await retryDelay(this.#retryDelayMs, attempt);
+          continue;
+        }
+        throw new AgentPulseRequestError(attempt);
+      }
+
+      if (!response.ok) {
+        if (isRetryableStatus(response.status) && attempt < maximumAttempts) {
+          await response.body?.cancel().catch(() => undefined);
+          await retryDelay(this.#retryDelayMs, attempt);
+          continue;
+        }
+        throw new AgentPulseIngestError(response.status, attempt);
+      }
+      break;
     }
 
-    if (!response.ok) {
-      throw new AgentPulseIngestError(response.status);
+    if (!response?.ok) {
+      throw new AgentPulseRequestError(maximumAttempts);
     }
 
     let body: unknown;
@@ -462,9 +627,19 @@ function ingestionUrl(baseUrl: string): string {
   if (!["http:", "https:"].includes(parsed.protocol)) {
     throw new AgentPulseValidationError("baseUrl must use HTTP or HTTPS");
   }
+  if (parsed.username || parsed.password) {
+    throw new AgentPulseValidationError(
+      "baseUrl must not include embedded credentials",
+    );
+  }
   if (parsed.search || parsed.hash) {
     throw new AgentPulseValidationError(
       "baseUrl must not include a query string or fragment",
+    );
+  }
+  if (/\/v1\/ingest\/?$/.test(parsed.pathname)) {
+    throw new AgentPulseValidationError(
+      "baseUrl must be the AgentPulse API origin without /v1/ingest",
     );
   }
 
@@ -481,15 +656,105 @@ function secureUuid(): string {
   return globalThis.crypto.randomUUID();
 }
 
-function timestamp(value?: TimestampInput): string {
+function timestamp(value: TimestampInput | undefined, field: string): string {
   if (value instanceof Date) {
     try {
       return value.toISOString();
     } catch {
-      throw new AgentPulseValidationError("Timestamp must be a valid date");
+      throw new AgentPulseValidationError(`${field} must be a valid date`);
     }
   }
-  return value ?? new Date().toISOString();
+  if (value === undefined) {
+    return new Date().toISOString();
+  }
+  if (
+    typeof value !== "string" ||
+    !TIMESTAMP_TIMEZONE_PATTERN.test(value) ||
+    Number.isNaN(Date.parse(value))
+  ) {
+    throw new AgentPulseValidationError(
+      `${field} must be an ISO 8601 timestamp with a timezone`,
+    );
+  }
+  return value;
+}
+
+function requireNonEmptyString(value: unknown, field: string): void {
+  if (typeof value !== "string" || value.trim() === "") {
+    throw new AgentPulseValidationError(`${field} must be a non-empty string`);
+  }
+}
+
+function optionalNonEmptyString(value: unknown, field: string): void {
+  if (value !== undefined && value !== null) {
+    requireNonEmptyString(value, field);
+  }
+}
+
+function requireOptionsObject(value: unknown, field: string): void {
+  if (typeof value !== "object" || value === null || Array.isArray(value)) {
+    throw new AgentPulseValidationError(`${field} must be an object`);
+  }
+}
+
+function optionalFinishedStatus(value: unknown): void {
+  if (
+    value !== undefined &&
+    !(FINISHED_STATUSES as readonly unknown[]).includes(value)
+  ) {
+    throw new AgentPulseValidationError(
+      `status must be one of ${FINISHED_STATUSES.join(", ")}`,
+    );
+  }
+}
+
+function boundedInteger(
+  value: unknown,
+  fallback: number,
+  minimum: number,
+  maximum: number,
+  field: string,
+): number {
+  if (value === undefined) {
+    return fallback;
+  }
+  if (!Number.isSafeInteger(value) || (value as number) < minimum || (value as number) > maximum) {
+    throw new AgentPulseValidationError(
+      `${field} must be a safe integer between ${minimum} and ${maximum}`,
+    );
+  }
+  return value as number;
+}
+
+function isRetryableStatus(status: number): boolean {
+  return status === 408 || status === 429 || status >= 500;
+}
+
+async function retryDelay(baseDelayMs: number, retryNumber: number): Promise<void> {
+  const delayMs = Math.min(baseDelayMs * 2 ** (retryNumber - 1), MAX_RETRY_DELAY_MS);
+  if (delayMs === 0) {
+    return;
+  }
+  await new Promise<void>((resolve) => setTimeout(resolve, delayMs));
+}
+
+function spanFailureOptions(error: unknown): EndSpanOptions {
+  return {
+    status: "failed",
+    errorType: error instanceof Error && error.name ? error.name : "Error",
+    errorMessage:
+      error instanceof Error && error.message ? error.message : "Operation failed",
+    errorStack: error instanceof Error ? error.stack : undefined,
+  };
+}
+
+function traceFailureOptions(error: unknown): EndTraceOptions {
+  return {
+    status: "failed",
+    errorType: error instanceof Error && error.name ? error.name : "Error",
+    errorMessage:
+      error instanceof Error && error.message ? error.message : "Operation failed",
+  };
 }
 
 function elapsedMilliseconds(

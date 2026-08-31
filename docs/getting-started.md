@@ -76,12 +76,17 @@ From your server-side Node.js application, run:
 pnpm add @agentpulse/sdk
 ```
 
+Use the registry command only for a version that is visible in your configured
+npm registry after an authorized release. The repository does not claim that
+its current SDK version has already been published; maintainers can use the
+clean-room tarball flow in [SDK release](sdk-release.md) before publication.
+
 The resulting package dependency is:
 
 ```json
 {
   "dependencies": {
-    "@agentpulse/sdk": "^0.0.1"
+    "@agentpulse/sdk": "<released-version>"
   }
 }
 ```
@@ -93,7 +98,7 @@ the AgentPulse monorepo or its internal packages.
 `AGENTPULSE_API_KEY` and `AGENTPULSE_BASE_URL` are conventions used by the
 repository examples. Pass their values to the SDK constructor; the SDK does
 not read environment variables itself. The base URL is the API origin and must
-not include `/v1/ingest`, a query string, or a fragment.
+not include `/v1/ingest`, embedded credentials, a query string, or a fragment.
 
 ### Send a first trace
 
@@ -146,12 +151,70 @@ async function main() {
 void main();
 ```
 
-`endTrace()` requires every span to be ended. It then validates the complete
-payload and sends one request. When trace totals are omitted, the SDK sums token
-counts and decimal costs from the ended spans.
+`endTrace()` requires every span to be ended. It then validates and sends one
+complete payload. When trace totals are omitted, the SDK sums token counts and
+decimal costs from the ended spans.
+
+The default ten-second request timeout and two bounded retries apply only to
+network/timeout failures and HTTP `408`, `429`, or `5xx`. Other `4xx` responses
+are returned immediately. Use the optional third constructor argument to set
+`requestTimeoutMs`, `maxRetries`, or `retryDelayMs`. For callback-scoped
+instrumentation, `withTrace` and `withSpan` auto-close success and mark
+unfinished telemetry failed while preserving the original callback error.
+See the [SDK API reference](sdk-api.md) for all exports and error fields.
 
 Open **Runs** in the selected project and choose the new trace to inspect its
 span, timing, token, cost, provider/model, input, and output fields.
+
+### Instrument an OpenAI-compatible chat completion
+
+For an existing non-streaming OpenAI-compatible client, keep the provider call
+unchanged and wrap it with the SDK helper. The provider package remains your
+application dependency; `@agentpulse/sdk` does not install it.
+
+```ts
+import OpenAI from "openai";
+import { AgentPulse, traceOpenAIChatCompletion } from "@agentpulse/sdk";
+
+const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
+const pulse = new AgentPulse(
+  process.env.AGENTPULSE_API_KEY!,
+  process.env.AGENTPULSE_BASE_URL ?? "http://127.0.0.1:5000",
+);
+const trace = pulse.startTrace({ agentName: "support-agent" });
+const request = {
+  model: "your-model",
+  messages: [{ role: "user" as const, content: "Summarize this ticket" }],
+};
+
+const completion = await traceOpenAIChatCompletion(
+  pulse,
+  trace,
+  request,
+  () => openai.chat.completions.create(request),
+  { provider: "openai" },
+).catch(async (error: unknown) => {
+  try {
+    await pulse.endTrace(trace, {
+      status: "failed",
+      errorType: error instanceof Error ? error.name : "ProviderError",
+      errorMessage: error instanceof Error ? error.message : "Request failed",
+    });
+  } catch {
+    // Do not replace the provider error with a telemetry delivery error.
+  }
+  throw error;
+});
+
+await pulse.endTrace(trace);
+console.log(completion.choices[0]?.message.content);
+```
+
+The helper records a regular `llm_call` span, returns the exact provider
+response, and rethrows the exact provider error. It captures latency, provider,
+model, finish reasons, standard token usage, and cost fields when the provider
+returns them. It does not capture prompt or completion text. End streaming spans
+manually after consuming the full stream.
 
 ## Trace and span instrumentation
 
@@ -394,6 +457,13 @@ Confirm that `@agentpulse/sdk` is listed in the application's dependencies,
 reinstall with the application's package manager, and verify that Node.js 18 or
 newer is in use. Inside this repository, the bundled examples intentionally use
 the local workspace package.
+
+### The SDK rejects a lifecycle call immediately
+
+The SDK validates required trace/span names, span types, timestamps, completion
+statuses, and base URLs at the call that supplies them. Timestamps must include
+a timezone. Use the API origin as `baseUrl`; endpoint URLs, embedded
+credentials, query strings, and fragments are rejected.
 
 ## Verify the integration
 

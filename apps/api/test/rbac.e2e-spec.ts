@@ -18,6 +18,12 @@ interface IdResponse {
   id: string;
 }
 
+interface WebhookResponse {
+  url: string;
+  signingSecret: string;
+  signatureVersion: string;
+}
+
 describe('V1 organization RBAC (e2e)', () => {
   let app: INestApplication<App>;
   let prisma: PrismaService;
@@ -38,8 +44,14 @@ describe('V1 organization RBAC (e2e)', () => {
     viewer: `rbac-viewer-${suffix}@example.com`,
     outsider: `rbac-outsider-${suffix}@example.com`,
   };
+  const originalWebhookEncryptionKey = process.env.ALERT_WEBHOOK_ENCRYPTION_KEY;
+  const originalWebhookMapping = process.env.ALERT_WEBHOOK_URLS_JSON;
 
   beforeAll(async () => {
+    process.env.ALERT_WEBHOOK_ENCRYPTION_KEY = Buffer.alloc(32, 11).toString(
+      'base64',
+    );
+    delete process.env.ALERT_WEBHOOK_URLS_JSON;
     const moduleFixture: TestingModule = await Test.createTestingModule({
       imports: [AppModule],
     }).compile();
@@ -141,9 +153,17 @@ describe('V1 organization RBAC (e2e)', () => {
       where: { email: { in: Object.values(emails) } },
     });
     await app.close();
+    restoreEnvironment(
+      'ALERT_WEBHOOK_ENCRYPTION_KEY',
+      originalWebhookEncryptionKey,
+    );
+    restoreEnvironment('ALERT_WEBHOOK_URLS_JSON', originalWebhookMapping);
   });
 
   it('allows owners and admins to manage projects, API keys, and alert rules', async () => {
+    const fetchMock = jest
+      .spyOn(global, 'fetch')
+      .mockResolvedValue(new Response(null, { status: 204 }));
     for (const role of ['owner', 'admin'] as const) {
       await request(app.getHttpServer())
         .post(`/organizations/${organizationId}/projects`)
@@ -190,7 +210,48 @@ describe('V1 organization RBAC (e2e)', () => {
         .delete(`/alert-rules/${alertRuleId}`)
         .set('Authorization', bearer(authByRole[role]))
         .expect(204);
+
+      const webhook = await request(app.getHttpServer())
+        .put(`/projects/${projectId}/alert-webhook`)
+        .set('Authorization', bearer(authByRole[role]))
+        .send({ url: `http://webhook.mock/${role}` })
+        .expect(200);
+      const webhookBody = webhook.body as WebhookResponse;
+      expect(webhookBody).toMatchObject({
+        url: `http://webhook.mock/${role}`,
+        signatureVersion: 'v1',
+      });
+      expect(webhookBody.signingSecret).toMatch(/^whsec_/);
+      const stored = await prisma.project.findUniqueOrThrow({
+        where: { id: projectId },
+        select: { alertWebhookSecretEncrypted: true },
+      });
+      expect(stored.alertWebhookSecretEncrypted).toMatch(/^v1\./);
+      expect(stored.alertWebhookSecretEncrypted).not.toContain(
+        webhookBody.signingSecret,
+      );
+
+      const status = await request(app.getHttpServer())
+        .get(`/projects/${projectId}/alert-webhook`)
+        .set('Authorization', bearer(authByRole[role]))
+        .expect(200);
+      expect(status.body).toMatchObject({
+        configured: true,
+        source: 'project',
+        signed: true,
+      });
+      expect(status.body).not.toHaveProperty('signingSecret');
+
+      await request(app.getHttpServer())
+        .post(`/projects/${projectId}/alert-webhook/test`)
+        .set('Authorization', bearer(authByRole[role]))
+        .expect(201)
+        .expect(({ body }) => {
+          expect(body).toMatchObject({ status: 'delivered', error: null });
+        });
     }
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+    jest.restoreAllMocks();
   });
 
   it('allows every organization role to read projects and telemetry', async () => {
@@ -258,6 +319,19 @@ describe('V1 organization RBAC (e2e)', () => {
         .delete(`/alert-rules/${persistentAlertRuleId}`)
         .set('Authorization', authorization)
         .expect(403);
+      await request(app.getHttpServer())
+        .put(`/projects/${projectId}/alert-webhook`)
+        .set('Authorization', authorization)
+        .send({ url: 'http://webhook.mock/forbidden' })
+        .expect(403);
+      await request(app.getHttpServer())
+        .post(`/projects/${projectId}/alert-webhook/test`)
+        .set('Authorization', authorization)
+        .expect(403);
+      await request(app.getHttpServer())
+        .delete(`/projects/${projectId}/alert-webhook`)
+        .set('Authorization', authorization)
+        .expect(403);
     }
 
     expect(
@@ -289,6 +363,11 @@ describe('V1 organization RBAC (e2e)', () => {
       .send({ name: 'Cross tenant', type: 'cost', threshold: 1 })
       .expect(404);
     await request(app.getHttpServer())
+      .put(`/projects/${projectId}/alert-webhook`)
+      .set('Authorization', authorization)
+      .send({ url: 'http://webhook.mock/cross-tenant' })
+      .expect(404);
+    await request(app.getHttpServer())
       .patch(`/alert-rules/${persistentAlertRuleId}`)
       .set('Authorization', authorization)
       .send({ enabled: false })
@@ -317,6 +396,10 @@ describe('V1 organization RBAC (e2e)', () => {
       .send({ name: 'Unauthenticated', type: 'cost', threshold: 1 })
       .expect(401);
     await request(app.getHttpServer())
+      .put(`/projects/${projectId}/alert-webhook`)
+      .send({ url: 'http://webhook.mock/unauthenticated' })
+      .expect(401);
+    await request(app.getHttpServer())
       .get(`/projects/${projectId}/traces`)
       .expect(401);
   });
@@ -324,4 +407,12 @@ describe('V1 organization RBAC (e2e)', () => {
 
 function bearer(auth: AuthResponse): string {
   return `Bearer ${auth.accessToken}`;
+}
+
+function restoreEnvironment(name: string, value: string | undefined): void {
+  if (value === undefined) {
+    delete process.env[name];
+  } else {
+    process.env[name] = value;
+  }
 }
