@@ -119,11 +119,10 @@ with the [SDK quickstart](docs/getting-started.md#typescript-sdk-quickstart).
 
 ## SDK at a glance
 
-The current SDK is a private workspace package; it is not published to a
-package registry. Add it from a package inside this pnpm workspace:
+Install the SDK in your server-side Node.js application:
 
 ```powershell
-pnpm add @agentpulse/sdk@workspace:*
+pnpm add @agentpulse/sdk
 ```
 
 ```ts

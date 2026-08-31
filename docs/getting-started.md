@@ -68,14 +68,12 @@ $env:AGENTPULSE_BASE_URL = "http://127.0.0.1:5000"
 
 ## TypeScript SDK quickstart
 
-### Install the workspace package
+### Install the package
 
-`@agentpulse/sdk` is currently private and consumed through this pnpm
-workspace; it is not published to a package registry. From the agent package
-inside this monorepo, run:
+From your server-side Node.js application, run:
 
 ```powershell
-pnpm add @agentpulse/sdk@workspace:*
+pnpm add @agentpulse/sdk
 ```
 
 The resulting package dependency is:
@@ -83,10 +81,14 @@ The resulting package dependency is:
 ```json
 {
   "dependencies": {
-    "@agentpulse/sdk": "workspace:*"
+    "@agentpulse/sdk": "^0.0.1"
   }
 }
 ```
+
+The SDK requires Node.js 18 or newer. This repository's bundled examples use a
+pnpm workspace link during development, but external applications do not need
+the AgentPulse monorepo or its internal packages.
 
 `AGENTPULSE_API_KEY` and `AGENTPULSE_BASE_URL` are conventions used by the
 repository examples. Pass their values to the SDK constructor; the SDK does
@@ -388,9 +390,10 @@ after their trace has ended, and only use trace/span handles created by the same
 
 ### The SDK import cannot be resolved
 
-The package is workspace-only. Run the command from a package included by
-`pnpm-workspace.yaml` and use `"@agentpulse/sdk": "workspace:*"`. An install
-from the public npm registry is not currently supported.
+Confirm that `@agentpulse/sdk` is listed in the application's dependencies,
+reinstall with the application's package manager, and verify that Node.js 18 or
+newer is in use. Inside this repository, the bundled examples intentionally use
+the local workspace package.
 
 ## Verify the integration
 

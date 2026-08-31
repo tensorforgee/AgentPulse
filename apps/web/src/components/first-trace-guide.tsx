@@ -1,7 +1,7 @@
 import Link from "next/link";
 import { CopyButton } from "@/components/copy-button";
 
-const SDK_INSTALL_COMMAND = "pnpm add @agentpulse/sdk@workspace:*";
+const SDK_INSTALL_COMMAND = "pnpm add @agentpulse/sdk";
 const SDK_ENVIRONMENT = `AGENTPULSE_API_KEY=<your-project-api-key>
 AGENTPULSE_BASE_URL=http://127.0.0.1:5000`;
 const FIRST_TRACE_TYPESCRIPT = `import { AgentPulse } from "@agentpulse/sdk";
@@ -47,8 +47,8 @@ export function FirstTraceGuide({ projectName }: { projectName?: string }) {
             Connect {projectName ?? "your project"} to AgentPulse
           </h2>
           <p className="mt-2 max-w-3xl text-sm leading-6 text-slate-600">
-            Follow these steps in your server-side TypeScript agent. The V1 SDK
-            is currently installed from this pnpm workspace.
+            Follow these steps in your server-side TypeScript agent using the
+            published V1 SDK package.
           </p>
         </div>
         <Link
