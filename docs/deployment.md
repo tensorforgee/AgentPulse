@@ -30,6 +30,7 @@ time connection to Google Fonts.
 | `POSTGRES_USER` | Yes | Dedicated PostgreSQL application user. |
 | `POSTGRES_PASSWORD` | Yes | Long, URL-safe database password used only in the ignored deploy env file. |
 | `DATABASE_URL` | Yes | Private `postgres:5432` URL using the same database/user/password values. |
+| `ALERT_WEBHOOK_ENCRYPTION_KEY` | Yes for this Compose profile | Stable base64-encoded 32-byte key used to encrypt per-project webhook signing secrets. Back it up with the database; losing or changing it makes stored webhook secrets unreadable. |
 
 The Compose file derives `CORS_ORIGINS` from `WEB_DOMAIN`, uses
 `AGENTPULSE_API_URL=http://api:5000` only inside Docker, and defaults
@@ -57,18 +58,32 @@ The API also accepts optional configuration groups:
   `RATE_LIMIT_INGEST_MAX`, `RATE_LIMIT_INGEST_WINDOW_MS`,
   `RATE_LIMIT_RCA_MAX`, `RATE_LIMIT_RCA_WINDOW_MS`, and
   `RATE_LIMIT_MAX_BUCKETS`. Built-in defaults apply when these are unset.
-- AI root-cause analysis: `RCA_PROVIDER_API_KEY`, `RCA_PROVIDER_MODEL`, and
-  optional `RCA_PROVIDER_BASE_URL`. RCA returns its documented graceful
-  unconfigured response unless both the key and model are set.
-- Stripe subscriptions: `STRIPE_SECRET_KEY`, `STRIPE_WEBHOOK_SECRET`, and
-  `STRIPE_PRO_PRICE_ID`. Configure all three to enable hosted Checkout,
-  signed subscription webhooks, and the customer portal. When unset, usage
-  remains available while upgrade and management actions fail closed.
-- Alert delivery: `ALERT_WEBHOOK_ENCRYPTION_KEY`, a base64-encoded 32-byte key
-  used to encrypt per-project signing secrets. Generate it with
+- AI root-cause analysis: set `RCA_PROVIDER_API_KEY` and `RCA_PROVIDER_MODEL`
+  together. `RCA_PROVIDER_BASE_URL` is optional and defaults to OpenAI's API.
+  RCA returns its documented graceful unconfigured response when both key and
+  model are unset. Do not configure only one of the pair.
+- Stripe subscriptions: `STRIPE_SECRET_KEY` and `STRIPE_PRO_PRICE_ID` enable
+  hosted Checkout and the customer portal; `STRIPE_WEBHOOK_SECRET` is also
+  required to verify subscription events. Configure all three for a complete
+  production billing setup. When they are all unset, usage remains available
+  while upgrade and management actions fail closed.
+- Alert delivery: `ALERT_WEBHOOK_ENCRYPTION_KEY` is a stable base64-encoded
+  32-byte key used to encrypt per-project signing secrets. It is required by
+  the included production Compose profile. Generate it with
   `node -e "console.log(require('node:crypto').randomBytes(32).toString('base64'))"`.
   `ALERT_WEBHOOK_URLS_JSON` remains an optional unsigned fallback for existing
-  deployments that map project IDs to HTTPS webhook URLs.
+  deployments that map project IDs to HTTPS webhook URLs. A key that is set but
+  does not decode to exactly 32 bytes fails API startup with a named error, so a
+  leftover placeholder surfaces during deployment instead of at the first
+  webhook delivery. Leaving the key unset still boots and defers to the existing
+  `503` on webhook use.
+
+For Stripe, create a webhook endpoint at
+`https://<API_DOMAIN>/billing/webhooks/stripe`, subscribe it to
+`checkout.session.completed`, `customer.subscription.created`,
+`customer.subscription.updated`, and `customer.subscription.deleted`, then put
+that endpoint's signing secret in `STRIPE_WEBHOOK_SECRET`. Stripe API keys and
+webhook signing secrets are different values.
 
 Webhook URLs, provider keys, JWT secrets, and `DATABASE_URL` are secrets. Keep
 them in the hosting platform's secret manager even though some are optional.
@@ -201,6 +216,11 @@ connections. Do not set a broad trust value: client IPs feed the authentication
 and invalid-API-key rate-limit buckets. Configure the proxy to replace, rather
 than append untrusted client-supplied forwarding headers.
 
+If the web service reaches the API through anything other than the edge proxy
+counted by `TRUST_PROXY_HOPS`, keep that extra hop out of the count: the Next.js
+route handlers forward the edge proxy's `x-forwarded-for` chain unchanged rather
+than adding an entry of their own.
+
 ## Recommended Docker Compose deployment
 
 Docker Compose 2.20 or newer is required for the health and completion
@@ -211,7 +231,10 @@ starting the stack. Add AAAA records only when IPv6 routing and the host firewal
 are configured. Caddy then obtains and renews TLS certificates and redirects
 HTTP to HTTPS automatically.
 
-From a clean host:
+From a clean host, after Docker Engine, the Compose plugin, Git, and the host
+firewall are configured, use the following sequence. Replace
+`<REVIEWED_COMMIT_SHA>` with the exact reviewed 40-character release commit;
+do not deploy a moving branch name.
 
 1. Install supported Docker Engine and Docker Compose releases, then enable the
    Docker service at boot.
@@ -223,12 +246,33 @@ From a clean host:
 5. Start the stack and wait for the migration, API, and web health gates.
 
 ```sh
-cp deploy/.env.example deploy/.env
+export AGENTPULSE_RELEASE='<REVIEWED_COMMIT_SHA>'
+sudo install -d -o "$(id -un)" -g "$(id -gn)" /opt/agentpulse
+git clone https://github.com/tensorforgee/AgentPulse.git /opt/agentpulse
+cd /opt/agentpulse
+git checkout --detach "$AGENTPULSE_RELEASE"
+
+install -m 600 deploy/.env.example deploy/.env
 # Replace every placeholder in deploy/.env with deployment-specific values.
-chmod 600 deploy/.env
+${EDITOR:-vi} deploy/.env
+if grep -Eq 'replace-with|example\.com' deploy/.env; then
+  echo 'deploy/.env still contains placeholder values' >&2
+  exit 1
+fi
+
 docker compose --env-file deploy/.env -f deploy/compose.production.yml config --quiet
 docker compose --env-file deploy/.env -f deploy/compose.production.yml run --rm --no-deps caddy validate --config /etc/caddy/Caddyfile
 docker compose --env-file deploy/.env -f deploy/compose.production.yml up --build -d
+docker compose --env-file deploy/.env -f deploy/compose.production.yml wait migrate
+docker compose --env-file deploy/.env -f deploy/compose.production.yml run --rm --no-deps migrate pnpm --dir apps/api db:migrate:status
+
+set -a
+. deploy/.env
+set +a
+curl --fail --silent --show-error "https://${API_DOMAIN}/health/live"
+curl --fail --silent --show-error "https://${API_DOMAIN}/health/ready"
+curl --fail --location --silent --show-error "https://${WEB_DOMAIN}/" >/dev/null
+docker compose --env-file deploy/.env -f deploy/compose.production.yml ps --all
 ```
 
 The Compose stack:
@@ -248,13 +292,35 @@ Do not expose that file or copy it into an image. For an existing managed
 database, remove the Compose `postgres` service, its dependency/volume, and set
 `DATABASE_URL` to the provider's private TLS connection string.
 
-The included topology is direct client -> Caddy -> API, so
-`TRUST_PROXY_HOPS=1` is required for correct per-client rate-limit identity.
-Caddy replaces untrusted forwarding information before proxying. If a CDN or
+Both request paths reach the API through exactly one trusted hop, so
+`TRUST_PROXY_HOPS=1` is correct for each of them:
+
+- SDK -> Caddy -> API. Caddy discards client-supplied `X-Forwarded-*` values and
+  sets the chain to the real client address.
+- Browser -> Caddy -> web -> API. The Next.js route handlers replay Caddy's
+  `x-forwarded-for` chain verbatim on their server-side API call, including on
+  the authenticated SSE stream. Without that replay every dashboard signup,
+  login, and refresh would share one rate-limit bucket keyed on the web
+  container address.
+
+The API reads the right-most entry of the chain, so a spoofed left-most value
+stays meaningless and both paths resolve the same client identity. If a CDN or
 load balancer is added later, configure its trusted proxy ranges in Caddy and
 recalculate the exact API hop count; do not increase this value speculatively.
 
-After startup, verify the release before creating user data:
+Caddy also applies a shared security-header snippet to both sites:
+`Strict-Transport-Security` (one year, without `includeSubDomains` so an apex
+deployment does not force HTTPS on unrelated subdomains), `X-Content-Type-Options`,
+`X-Frame-Options`, `Referrer-Policy`, and `Cross-Origin-Opener-Policy`, and it
+removes the `Server` header. A Content-Security-Policy is deliberately not set
+here because the dashboard would need nonce plumbing to keep working.
+
+Container logs use the `json-file` driver capped at three 10 MiB files per
+service, so an unbounded log stream cannot fill the host disk and stop
+PostgreSQL.
+
+The final commands above verify the release before creating user data. For
+later checks, use:
 
 ```sh
 docker compose --env-file deploy/.env -f deploy/compose.production.yml ps --all
@@ -271,6 +337,66 @@ run `prisma migrate dev` or `db push` in production.
 Still configure host backups for the `postgres_data` volume, off-host backup
 retention, OS/container security updates, log retention, and provider-level
 firewall rules. Do not expose PostgreSQL publicly.
+
+## Backup and restore
+
+Back up the logical database before every migration and on a schedule. The
+following creates a compressed, portable PostgreSQL dump without publishing a
+database port. Keep the dump and `ALERT_WEBHOOK_ENCRYPTION_KEY` encrypted and
+off-host; both are needed to recover project webhook signing secrets.
+
+```sh
+cd /opt/agentpulse
+umask 077
+sudo install -d -m 700 -o "$(id -un)" -g "$(id -gn)" /var/backups/agentpulse
+docker compose --env-file deploy/.env -f deploy/compose.production.yml exec -T postgres sh -c \
+  'pg_dump --username "$POSTGRES_USER" --dbname "$POSTGRES_DB" --format=custom' \
+  > "/var/backups/agentpulse/agentpulse-$(date -u +%Y%m%dT%H%M%SZ).dump"
+```
+
+Test restores regularly on a separate host. To replace the live database from
+a known-good dump, first take another backup, verify the dump is from a
+compatible PostgreSQL major version, then use this maintenance-window flow:
+
+```sh
+cd /opt/agentpulse
+export BACKUP_FILE='/absolute/path/to/agentpulse-backup.dump'
+test -r "$BACKUP_FILE"
+docker compose --env-file deploy/.env -f deploy/compose.production.yml stop caddy web api
+docker compose --env-file deploy/.env -f deploy/compose.production.yml exec -T postgres sh -c \
+  'pg_restore --username "$POSTGRES_USER" --dbname "$POSTGRES_DB" --clean --if-exists --exit-on-error' \
+  < "$BACKUP_FILE"
+docker compose --env-file deploy/.env -f deploy/compose.production.yml run --rm --no-deps migrate pnpm --dir apps/api db:migrate:deploy
+docker compose --env-file deploy/.env -f deploy/compose.production.yml up -d api web caddy
+```
+
+This restore overwrites live database objects and loses changes made after the
+dump. Restore the matching webhook encryption key before starting the API.
+
+## Rollback
+
+Prefer an application-only rollback to the previous reviewed commit when its
+code is compatible with the current database schema. Keep the current database
+and rebuild only API/web; do not run old migrations backward.
+
+```sh
+cd /opt/agentpulse
+export PREVIOUS_RELEASE_SHA='<PREVIOUS_REVIEWED_COMMIT_SHA>'
+set -a
+. deploy/.env
+set +a
+git checkout --detach "$PREVIOUS_RELEASE_SHA"
+docker compose --env-file deploy/.env -f deploy/compose.production.yml build api web
+docker compose --env-file deploy/.env -f deploy/compose.production.yml up -d --no-deps api
+docker compose --env-file deploy/.env -f deploy/compose.production.yml up -d --no-deps web
+curl --fail --silent --show-error "https://${API_DOMAIN}/health/ready"
+curl --fail --location --silent --show-error "https://${WEB_DOMAIN}/" >/dev/null
+```
+
+If the previous application is not forward-compatible with the deployed
+schema, roll forward with a fix. Restore the pre-release database dump only as
+a last resort because doing so discards post-backup writes. Never use `prisma
+migrate reset`, `migrate dev`, or `db push` on production data.
 
 ## Production verification
 

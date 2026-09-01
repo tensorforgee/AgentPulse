@@ -7,6 +7,7 @@ import {
 import {
   BadRequestException,
   Injectable,
+  type OnModuleInit,
   ServiceUnavailableException,
 } from '@nestjs/common';
 import { validateTenantWebhookUrl } from '../operations/security-config';
@@ -30,8 +31,12 @@ export interface WebhookDeliveryResult {
 }
 
 @Injectable()
-export class AlertWebhookService {
+export class AlertWebhookService implements OnModuleInit {
   constructor(private readonly prisma: PrismaService) {}
+
+  onModuleInit(): void {
+    assertAlertWebhookEncryptionKey();
+  }
 
   async configure(projectId: string, value: string) {
     const url = await this.validatedUrl(value);
@@ -255,6 +260,30 @@ function legacyConfiguration(projectId: string): WebhookConfiguration {
   }
 }
 
+function decodeEncryptionKey(value: string): Buffer {
+  const key = Buffer.from(value, 'base64');
+  if (key.length !== 32) {
+    throw new Error(
+      'ALERT_WEBHOOK_ENCRYPTION_KEY must be a base64-encoded 32-byte key',
+    );
+  }
+  return key;
+}
+
+/**
+ * Fails startup on a malformed key instead of waiting for the first webhook
+ * call to return 503. An unset key stays a runtime condition so local
+ * development and deployments that never configure webhooks still boot.
+ */
+export function assertAlertWebhookEncryptionKey(
+  value = process.env.ALERT_WEBHOOK_ENCRYPTION_KEY,
+): void {
+  if (value === undefined || value.trim() === '') {
+    return;
+  }
+  decodeEncryptionKey(value);
+}
+
 function encryptionKey(): Buffer {
   const value = process.env.ALERT_WEBHOOK_ENCRYPTION_KEY;
   if (!value) {
@@ -262,13 +291,13 @@ function encryptionKey(): Buffer {
       'Tenant webhook encryption is not configured',
     );
   }
-  const key = Buffer.from(value, 'base64');
-  if (key.length !== 32) {
+  try {
+    return decodeEncryptionKey(value);
+  } catch {
     throw new ServiceUnavailableException(
       'Tenant webhook encryption key must decode to 32 bytes',
     );
   }
-  return key;
 }
 
 function encryptSecret(secret: string, key: Buffer): string {

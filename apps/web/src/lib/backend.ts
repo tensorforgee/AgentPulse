@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import { forwardedForHeader } from "./forwarded-for";
 
 export const ACCESS_COOKIE = "agentpulse_access";
 export const REFRESH_COOKIE = "agentpulse_refresh";
@@ -39,11 +40,17 @@ function clearSessionCookies(response: NextResponse) {
   response.cookies.set(REFRESH_COOKIE, "", cookieOptions(0));
 }
 
-async function callApi(path: string, init: RequestInit, accessToken?: string) {
+async function callApi(
+  path: string,
+  init: RequestInit,
+  accessToken?: string,
+  forwardedFor?: string | null,
+) {
   const headers = new Headers(init.headers);
   headers.set("accept", "application/json");
   if (init.body) headers.set("content-type", "application/json");
   if (accessToken) headers.set("authorization", `Bearer ${accessToken}`);
+  if (forwardedFor) headers.set("x-forwarded-for", forwardedFor);
 
   return fetch(`${API_URL}${path}`, {
     ...init,
@@ -72,16 +79,21 @@ function isAuthPayload(value: unknown): value is AuthPayload {
   );
 }
 
-function refreshSession(refreshToken: string) {
+function refreshSession(refreshToken: string, forwardedFor: string | null) {
   const existing = refreshRequests.get(refreshToken);
   if (existing) return existing;
 
   const pending = (async () => {
     try {
-      const response = await callApi("/auth/refresh", {
-        method: "POST",
-        body: JSON.stringify({ refreshToken }),
-      });
+      const response = await callApi(
+        "/auth/refresh",
+        {
+          method: "POST",
+          body: JSON.stringify({ refreshToken }),
+        },
+        undefined,
+        forwardedFor,
+      );
       if (!response.ok) return undefined;
 
       const payload: unknown = await response.json();
@@ -96,10 +108,15 @@ function refreshSession(refreshToken: string) {
 }
 
 export async function handleAuth(request: NextRequest, path: string) {
-  const upstream = await callApi(path, {
-    method: "POST",
-    body: await request.text(),
-  });
+  const upstream = await callApi(
+    path,
+    {
+      method: "POST",
+      body: await request.text(),
+    },
+    undefined,
+    forwardedForHeader(request.headers),
+  );
 
   if (!upstream.ok) return responseFromApi(upstream);
 
@@ -122,15 +139,21 @@ export async function authenticatedProxy(
   init: RequestInit,
 ) {
   const accessToken = request.cookies.get(ACCESS_COOKIE)?.value;
-  let upstream = await callApi(path, init, accessToken);
+  const forwardedFor = forwardedForHeader(request.headers);
+  let upstream = await callApi(path, init, accessToken, forwardedFor);
   let refreshed: AuthPayload | undefined;
 
   if (upstream.status === 401) {
     const refreshToken = request.cookies.get(REFRESH_COOKIE)?.value;
     if (refreshToken) {
-      refreshed = await refreshSession(refreshToken);
+      refreshed = await refreshSession(refreshToken, forwardedFor);
       if (refreshed) {
-        upstream = await callApi(path, init, refreshed.accessToken);
+        upstream = await callApi(
+          path,
+          init,
+          refreshed.accessToken,
+          forwardedFor,
+        );
       }
     }
   }
@@ -147,18 +170,25 @@ export async function authenticatedStreamProxy(
   path: string,
 ) {
   const accessToken = request.cookies.get(ACCESS_COOKIE)?.value;
-  let upstream = await callApi(path, { method: "GET" }, accessToken);
+  const forwardedFor = forwardedForHeader(request.headers);
+  let upstream = await callApi(
+    path,
+    { method: "GET" },
+    accessToken,
+    forwardedFor,
+  );
   let refreshed: AuthPayload | undefined;
 
   if (upstream.status === 401) {
     const refreshToken = request.cookies.get(REFRESH_COOKIE)?.value;
     if (refreshToken) {
-      refreshed = await refreshSession(refreshToken);
+      refreshed = await refreshSession(refreshToken, forwardedFor);
       if (refreshed) {
         upstream = await callApi(
           path,
           { method: "GET" },
           refreshed.accessToken,
+          forwardedFor,
         );
       }
     }
@@ -183,10 +213,15 @@ export async function handleLogout(request: NextRequest) {
   const refreshToken = request.cookies.get(REFRESH_COOKIE)?.value;
   if (refreshToken) {
     try {
-      await callApi("/auth/logout", {
-        method: "POST",
-        body: JSON.stringify({ refreshToken }),
-      });
+      await callApi(
+        "/auth/logout",
+        {
+          method: "POST",
+          body: JSON.stringify({ refreshToken }),
+        },
+        undefined,
+        forwardedForHeader(request.headers),
+      );
     } catch {
       // Local logout must still succeed if the API is temporarily unavailable.
     }
