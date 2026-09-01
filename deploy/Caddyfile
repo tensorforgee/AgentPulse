@@ -2,10 +2,25 @@
 	admin off
 }
 
+(security_headers) {
+	header {
+		# HSTS without includeSubDomains: the deployment may sit on an apex
+		# domain whose other subdomains are out of scope for this stack.
+		Strict-Transport-Security "max-age=31536000"
+		X-Content-Type-Options "nosniff"
+		X-Frame-Options "DENY"
+		Referrer-Policy "strict-origin-when-cross-origin"
+		Cross-Origin-Opener-Policy "same-origin"
+		-Server
+	}
+}
+
 {$WEB_DOMAIN} {
+	import security_headers
 	reverse_proxy web:3000
 }
 
 {$API_DOMAIN} {
+	import security_headers
 	reverse_proxy api:5000
 }
